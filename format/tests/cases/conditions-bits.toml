@@ -1,0 +1,126 @@
+about = """`&` and `!&` test bits, so what they compare with is a whole number too: another place of an integer type, \
+or a player value of an integer type or `bool`. The other operators compare numbers of any type (section 7.9)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "bits-place"
+name = "bits-place"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "&"
+  value = { at = { region = "heap", offset = 0x20 }, type = "u16" }
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bits-float-place"
+name = "bits-float-place"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "&"
+  value = { at = { region = "heap", offset = 0x20 }, type = "f32" }
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bits-float-value"
+name = "bits-float-value"
+  [cheat.values.mask]
+  type = "f32"
+  default = 4.0
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "!&"
+  value = "$mask"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bits-bool-value"
+name = "bits-bool-value"
+  [cheat.values.low]
+  type = "bool"
+  default = true
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "&"
+  value = "$low"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "less-float-value"
+name = "less-float-value"
+  [cheat.values.limit]
+  type = "f32"
+  default = 2.5
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "<"
+  value = "$limit"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect.cheat.bits-place]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "&", value = { address = 0x10000020, type = "u16" } },
+  { kind = "write" },
+]
+
+[expect.cheat.bits-float-place]
+state = "refused"
+reason = "invalid:when.value.type"
+
+[expect.cheat.bits-float-value]
+state = "refused"
+reason = "invalid:when.value"
+
+[expect.cheat.bits-bool-value]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "&", value = true },
+  { kind = "write" },
+]
+
+[expect.cheat.less-float-value]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "<", value = 2.5 },
+  { kind = "write" },
+]

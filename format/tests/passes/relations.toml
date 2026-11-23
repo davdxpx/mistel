@@ -1,0 +1,108 @@
+about = """Switching between passes follows section 7.8: a master cheat is on while a cheat that requires it is on, \
+and its patch with it; switching a cheat on switches off what it excludes, both ways, and the other cheats of its \
+radio group. A master cheat is not a switch (sections 7.1, 7.8 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "setup"
+name = "setup"
+master = true
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E"
+  bytes = "00 10 20 1E"
+
+[[cheat]]
+id = "fast"
+name = "fast"
+requires = ["setup"]
+radio = "speed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 2
+
+[[cheat]]
+id = "faster"
+name = "faster"
+requires = ["setup"]
+radio = "speed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 4
+
+[[cheat]]
+id = "calm"
+name = "calm"
+excludes = ["fast"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x200, hex = "00 10 2E 1E" } ]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[step]]
+on = ["fast"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "fast", address = 0x10000010, bytes = "02" },
+  ]
+  cheat.setup = { state = "on", reason = "" }
+  cheat.fast = { state = "on", reason = "" }
+
+[[step]]
+on = ["faster"]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "faster", address = 0x10000010, bytes = "04" } ]
+  cheat.fast = { state = "off", reason = "" }
+  cheat.faster = { state = "on", reason = "" }
+
+[[step]]
+on = ["calm"]
+  [step.expect]
+  changes = [
+    { kind = "write", cheat = "faster", address = 0x10000010, bytes = "04" },
+    { kind = "write", cheat = "calm", address = 0x10000011, bytes = "01" },
+  ]
+
+[[step]]
+on = ["fast"]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "fast", address = 0x10000010, bytes = "02" } ]
+  cheat.faster = { state = "off", reason = "" }
+  cheat.calm = { state = "off", reason = "" }
+
+[[step]]
+off = ["fast"]
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E" } ]
+  cheat.setup = { state = "off", reason = "" }
+
+[[step]]
+on = ["setup"]
+  [step.expect]
+  cheat.setup = { state = "off", reason = "" }

@@ -1,0 +1,105 @@
+about = """`interval = n`: the cheat tests and works only in every n-th pass, counted from its first pass after it \
+is switched on. In the passes in between it reads nothing and nothing of it changes: a patch stays as it was (sections \
+7.9 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "i"
+name = "i"
+default = true
+interval = 3
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "=="
+  value = 1
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "p"
+name = "p"
+default = true
+interval = 2
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x11 }
+  type = "u8"
+  op = "=="
+  value = 1
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E"
+  bytes = "00 10 20 1E"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x200, hex = "00 10 2E 1E" } ]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[env.memory]]
+at = 0x10000010
+hex = "01 01"
+
+[[step]]
+about = "Pass 1: both test."
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "i", address = 0x10000020, bytes = "01" },
+  ]
+
+[[step]]
+about = "Pass 2: neither tests, so p's patch stays although its condition no longer holds."
+memory = [ { at = 0x10000011, hex = "00" } ]
+
+[[step]]
+about = "Pass 3: p tests."
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E" } ]
+
+[[step]]
+about = "Pass 4: i tests."
+  [step.expect]
+  changes = [ { kind = "write", cheat = "i", address = 0x10000020, bytes = "01" } ]
+
+[[step]]
+about = "Pass 5: p tests."
+memory = [ { at = 0x10000010, hex = "00 01" } ]
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" } ]
+
+[[step]]
+about = "Pass 6."
+
+[[step]]
+about = "Pass 7: both test; i's condition is false, p's result stays."
+
+[[step]]
+about = "Switched off and on again, i counts from its next pass."
+off = ["i"]
+memory = [ { at = 0x10000010, hex = "01" } ]
+
+[[step]]
+on = ["i"]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "i", address = 0x10000020, bytes = "01" } ]

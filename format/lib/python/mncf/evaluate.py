@@ -102,6 +102,8 @@ class CheatResult:
     uses: str = ''       # core, raw, or empty for a refused cheat
     ops: list = field(default_factory=list)
     path_broken: bool = field(default=False, repr=False)
+    plans: list = field(default=None, repr=False)      # the planned operations, for the pass engine
+    raw_entry: object = field(default=None, repr=False)
 
 
 @dataclass
@@ -122,10 +124,6 @@ class _Refused(Exception):
         self.reason = reason
 
 
-class _Waiting(Exception):
-    pass
-
-
 def identify(f, rt):
     """The key of the build that runs, or None (section 5)."""
     if rt.build is not None:
@@ -139,21 +137,40 @@ def identify(f, rt):
 
 def evaluate(f, rt, choices=None):
     """The build that runs and every cheat's state, reason and resolved operations."""
-    choices = choices or Choices()
+    return load_state(f, rt, choices or Choices(), {})[0]
+
+
+def load_state(f, rt, choices, cache):
+    """The evaluation, the cheats that are on, and each cheat's own result before relations were looked at."""
     build = identify(f, rt)
     arch = rt.arch or f.platform.archs[0]
-    results = {}
-    file_reason = _file_reason(f, rt)
-    for c in f.cheats:
-        if file_reason:
-            results[c.id] = CheatResult(c.id, 'refused', file_reason)
-        elif c.problem:
-            results[c.id] = CheatResult(c.id, 'refused', c.problem)
-        else:
-            results[c.id] = _cheat(f, c, rt, build, arch, choices)
+    own = {c.id: _own(f, c, rt, build, arch, choices, cache) for c in f.cheats}
+    results = dict(own)
     _relations(f, results)
-    _switch(f, results, choices, rt)
-    return Evaluation(build, [results[c.id] for c in f.cheats])
+    on = _switch(f, results, choices, rt)
+    return Evaluation(build, [results[c.id] for c in f.cheats]), on, own
+
+
+def own_result(f, c, rt, build, choices, cache):
+    """A cheat's own result for the choices: refused with a reason, or its planned operations or raw entry."""
+    return _own(f, c, rt, build, rt.arch or f.platform.archs[0], choices, cache)
+
+
+def relations(f, own):
+    """The results after the relations between cheats (section 7.8), from each cheat's own result."""
+    results = dict(own)
+    _relations(f, results)
+    return results
+
+
+def _own(f, c, rt, build, arch, choices, cache):
+    """A cheat's result before its relations to other cheats are looked at."""
+    file_reason = _file_reason(f, rt)
+    if file_reason:
+        return CheatResult(c.id, 'refused', file_reason)
+    if c.problem:
+        return CheatResult(c.id, 'refused', c.problem)
+    return _cheat(f, c, rt, build, arch, choices, cache)
 
 
 def _file_reason(f, rt):
@@ -193,7 +210,7 @@ def _needs(c, rt, arch):
     return caps, exts
 
 
-def _cheat(f, c, rt, build, arch, choices):
+def _cheat(f, c, rt, build, arch, choices, cache):
     button_caps = ['buttons'] if (c.hold or c.toggle or c.press) else []
     core = c.core_ops
     caps, exts = _needs(c, rt, arch)
@@ -205,7 +222,7 @@ def _cheat(f, c, rt, build, arch, choices):
     buttons_missing = [cap for cap in button_caps if cap not in rt.capabilities]
     if core:
         if not missing and not missing_ext:
-            return _core(f, c, rt, build, arch, choices)
+            return _core(f, c, rt, build, arch, choices, cache)
         if entry is not None and not buttons_missing:
             return _raw(c, entry)
         reason = 'capability-missing:' + missing[0] if missing else 'extension-missing:' + missing_ext[0]
@@ -220,7 +237,8 @@ def _cheat(f, c, rt, build, arch, choices):
 
 
 def _raw(c, r):
-    return CheatResult(c.id, 'off', '', 'raw', [ResolvedOp('raw', syntax=r.syntax, build=r.build, code=r.code)])
+    return CheatResult(c.id, 'off', '', 'raw', [ResolvedOp('raw', syntax=r.syntax, build=r.build, code=r.code)],
+                       raw_entry=r)
 
 
 def _value(c, ref, choices):
@@ -242,28 +260,78 @@ def _value(c, ref, choices):
     return v
 
 
-def _core(f, c, rt, build, arch, choices):
-    ops, waiting, cache = [], False, {}
-    order = f.platform.byte_order
+def _core(f, c, rt, build, arch, choices, cache):
+    """Resolves a cheat's operations for the runtime as it is now: plans them, then follows their pointer paths."""
+    ops, plans, waiting = [], [], False
+    plat = f.platform
     try:
-        for op in c.ops:
-            try:
-                ops.append(_op(f, c, op, rt, build, arch, order, choices, cache))
-            except _Waiting:
+        for i, op in enumerate(c.ops):
+            p = _plan(f, c, i, op, rt, build, arch, choices, cache)
+            plans.append(p)
+            places = follow_all(plat, p, rt.read)
+            if places is None:
                 waiting = True
-                ops.append(ResolvedOp(_kind(op)))
+                ops.append(ResolvedOp(p.kind))
+                continue
+            if p.path_expect:
+                _check_expect(rt, places[0], p.expect, p.data if p.kind == 'patch' else None)
+            ops.append(p.resolved(places))
     except _Refused as r:
         return CheatResult(c.id, 'refused', r.reason)
-    return CheatResult(c.id, 'off', '', 'core', ops, waiting)
+    return CheatResult(c.id, 'off', '', 'core', ops, waiting, plans)
 
 
-def _kind(op):
-    return {Patch: 'patch', Write: 'write', Override: 'override', Read: 'read', Condition: 'when'}[type(op)]
+@dataclass
+class Target:
+    """A place an operation acts on before its pointer path is followed: the place of its base, the path, and how
+    many bytes the operation reads or writes there."""
+    base: object                   # a _Place
+    path: list = None
+    size: int = 0
 
 
-def _op(f, c, op, rt, build, arch, order, choices, cache):
+@dataclass
+class Plan:
+    """One operation of a cheat, resolved as far as it can be without reading guest memory that changes.
+
+    `targets` holds the operation's place and, for a condition that compares with another place, that place too.
+    `data` is what a patch, a write or an override stub writes; an override that the runtime hooks has none.
+    """
+    kind: str
+    index: int
+    op: object
+    targets: list
+    data: bytes = None
+    expect: bytes = None
+    type: str = None
+    action: str = None
+    value: object = None
+    label: str = None
+    path_expect: bool = False      # a patch or override stub behind a pointer path: expect is checked there
+
+    def resolved(self, places):
+        p = places[0]
+        if self.kind == 'patch':
+            return ResolvedOp('patch', p.address, p.module, p.offset, expect=self.expect, bytes=self.data)
+        if self.kind == 'write':
+            return ResolvedOp('write', p.address, p.module, p.offset, self.type, expect=self.expect, bytes=self.data)
+        if self.kind == 'override':
+            return ResolvedOp('override', p.address, p.module, p.offset, action=self.action, value=self.value,
+                              expect=self.expect, bytes=self.data)
+        if self.kind == 'read':
+            return ResolvedOp('read', p.address, p.module, p.offset, self.type, label=self.label)
+        v = self.value
+        if isinstance(v, Target):
+            v = {'address': places[1].address, 'type': self.op.value.type}
+        elif isinstance(v, tuple):
+            v = list(v)
+        return ResolvedOp('when', p.address, p.module, p.offset, self.type, op=self.op.op, value=v)
+
+
+def _plan(f, c, index, op, rt, build, arch, choices, cache):
+    order = f.platform.byte_order
     if isinstance(op, Patch):
-        place = _resolve(f, op.at, rt, build, len(op.expect), cache)
+        target = _target(f, op.at, rt, build, len(op.expect), cache)
         if op.encode is not None:
             e = op.encode
             v = _value(c, e['value'], choices) if isinstance(e['value'], ValueRef) else e['value']
@@ -272,11 +340,12 @@ def _op(f, c, op, rt, build, arch, order, choices, cache):
                 raise _Refused('value-out-of-range')
         else:
             data = op.bytes
-        _check_expect(rt, place, op.expect, data)
-        return ResolvedOp('patch', place.address, place.module, place.offset, expect=op.expect, bytes=data)
+        if not target.path:
+            _check_expect(rt, target.base, op.expect, data)
+        return Plan('patch', index, op, [target], data=data, expect=op.expect, path_expect=bool(target.path))
     if isinstance(op, Write):
         size = len(op.value) if op.type == 'bytes' else type_size(op.type)
-        place = _resolve(f, op.at, rt, build, size, cache)
+        target = _target(f, op.at, rt, build, size, cache)
         if op.type == 'bytes':
             data = op.value
             expect = op.expect
@@ -290,7 +359,7 @@ def _op(f, c, op, rt, build, arch, order, choices, cache):
                     raise _Refused('value-out-of-range')
             data = encode_value(op.type, v, order)
             expect = encode_value(op.type, op.expect, order) if op.expect is not None else None
-        return ResolvedOp('write', place.address, place.module, place.offset, op.type, expect=expect, bytes=data)
+        return Plan('write', index, op, [target], data=data, expect=expect, type=op.type)
     if isinstance(op, Override):
         v = op.value
         if isinstance(v, ValueRef):
@@ -298,26 +367,26 @@ def _op(f, c, op, rt, build, arch, order, choices, cache):
         patches = _by_bytes(op, rt, arch)
         stub = enc.stub(arch, op.action, v) if patches else None
         size = len(op.expect) if op.expect is not None else 4
-        place = _resolve(f, op.function, rt, build, size, cache)
+        target = _target(f, op.function, rt, build, size, cache)
         if patches:
             if len(stub) > len(op.expect):
                 raise _Refused('value-out-of-range' if isinstance(op.value, ValueRef) else 'invalid:override.expect')
-            _check_expect(rt, place, op.expect, None)
-        return ResolvedOp('override', place.address, place.module, place.offset, action=op.action, value=v,
-                          expect=op.expect, bytes=stub)
+            if not target.path:
+                _check_expect(rt, target.base, op.expect, None)
+        return Plan('override', index, op, [target], data=stub, expect=op.expect, action=op.action, value=v,
+                    path_expect=patches and bool(target.path))
     if isinstance(op, Read):
-        place = _resolve(f, op.at, rt, build, type_size(op.type), cache)
-        return ResolvedOp('read', place.address, place.module, place.offset, op.type, label=op.label)
-    place = _resolve(f, op.at, rt, build, type_size(op.type), cache)
+        target = _target(f, op.at, rt, build, type_size(op.type), cache)
+        return Plan('read', index, op, [target], type=op.type, label=op.label)
+    targets = [_target(f, op.at, rt, build, type_size(op.type), cache)]
     v = op.value
     if isinstance(v, ValueRef):
         v = _value(c, v, choices)
     elif isinstance(v, Place):
-        other = _resolve(f, v.at, rt, build, type_size(v.type), cache)
-        v = {'address': other.address, 'type': v.type}
-    elif isinstance(v, tuple):
-        v = list(v)
-    return ResolvedOp('when', place.address, place.module, place.offset, op.type, op=op.op, value=v)
+        other = _target(f, v.at, rt, build, type_size(v.type), cache)
+        targets.append(other)
+        v = other
+    return Plan('when', index, op, targets, type=op.type, value=v)
 
 
 @dataclass
@@ -328,11 +397,13 @@ class _Place:
     in_module: object = None       # the Module whose own bytes the place is in, for expect
 
 
-def _resolve(f, loc, rt, build, size, cache):
+def _target(f, loc, rt, build, size, cache):
+    """The place of a location's base (section 6.2), checked, and the pointer path that follows it."""
     plat = f.platform
+    need = plat.pointer_size if loc.path else size
     if loc.kind == 'address':
         place = _Place(loc.address)
-        if rt.read(loc.address, plat.pointer_size if loc.path else size) is None:
+        if rt.read(loc.address, need) is None:
             raise _Refused('outside')
     elif loc.kind in ('module', 'module-builds', 'pattern'):
         m = rt.modules.get(loc.module)
@@ -346,7 +417,6 @@ def _resolve(f, loc, rt, build, size, cache):
             off = loc.offsets[build]
         else:
             off = _search(m, loc, cache) + loc.offset
-        need = plat.pointer_size if loc.path else size
         if off < 0 or (m.size is not None and off + need > m.size):
             raise _Refused('outside')
         place = _Place((m.base + off) & ADDRESS_MASK, loc.module, off, m)
@@ -360,25 +430,41 @@ def _resolve(f, loc, rt, build, size, cache):
             if build is None or build not in loc.offsets:
                 raise _Refused('build-unknown')
             off = loc.offsets[build]
-        need = plat.pointer_size if loc.path else size
         if off + need > r[1]:
             raise _Refused('outside')
         place = _Place((r[0] + off) & ADDRESS_MASK)
-    if not loc.path:
-        return place
-    address = place.address
+    return Target(place, loc.path or None, size)
+
+
+def follow(plat, target, read):
+    """The place a target names now: its base, or where its pointer path leads. None where the path does not resolve
+    at the moment: a null pointer, or a pointer or the place outside guest memory."""
+    if not target.path:
+        return target.base
+    address = target.base.address
     mask = (1 << (8 * plat.pointer_size)) - 1
-    for step in loc.path:
-        raw = rt.read(address, plat.pointer_size)
+    for step in target.path:
+        raw = read(address, plat.pointer_size)
         if raw is None:
-            raise _Waiting()
+            return None
         pointer = int.from_bytes(raw, plat.byte_order)
         if pointer == 0:
-            raise _Waiting()
+            return None
         address = (pointer + step) & mask
-    if rt.read(address, size) is None:
-        raise _Waiting()
+    if read(address, target.size) is None:
+        return None
     return _Place(address)
+
+
+def follow_all(plat, plan, read):
+    """The places of every target of a planned operation, or None if one of them does not resolve now."""
+    places = []
+    for t in plan.targets:
+        p = follow(plat, t, read)
+        if p is None:
+            return None
+        places.append(p)
+    return places
 
 
 def _search(m, loc, cache):
@@ -489,23 +575,14 @@ def _conflicts(f, a, b):
 
 
 def _switch(f, results, choices, rt):
+    """Switches on the cheats that are on when the file is loaded (section 11.2) and gives every cheat its state.
+    Returns the cheats that are on."""
     wanted = [c.id for c in f.cheats if not c.master and
               ((c.default and c.id not in choices.off) or c.id in choices.on)]
     on = []
     for x in wanted:
-        if results[x].state == 'refused':
-            continue
-        group = _closure(f, x)
-        on = [y for y in on if not any(_conflicts(f, y, g) for g in group)]
-        on = _drop_unmet(f, on)
-        for g in group:
-            if g not in on:
-                on.append(g)
-    users = [y for y in on if not f.cheat(y).master]
-    needed = set()
-    for y in users:
-        needed.update(_closure(f, y))
-    on = [y for y in on if y in needed]
+        if results[x].state != 'refused':
+            on = switch_on(f, on, x)
     for c in f.cheats:
         r = results[c.id]
         if r.state == 'refused':
@@ -514,10 +591,44 @@ def _switch(f, results, choices, rt):
             r.state = 'off'
         elif r.path_broken:
             r.state, r.reason = 'waiting', 'path-broken'
-        elif c.hold and not set(c.hold.split('+')) <= rt.held:
+        elif r.uses == 'core' and waits_for_buttons(c, rt.held, False):
             r.state = 'waiting'
         else:
             r.state = 'on'
+    return on
+
+
+def waits_for_buttons(c, held, pressed_once):
+    """Whether a cheat that is on waits for buttons: held buttons it needs, or the first press of an action."""
+    if c.hold and not set(c.hold.split('+')) <= set(held):
+        return True
+    return c.run == 'action' and not pressed_once
+
+
+def switch_on(f, on, x):
+    """The cheats that are on after x is switched on (section 7.8): x and the cheats it requires are on, and every
+    cheat that conflicts with one of them is off, with the cheats that require it."""
+    group = _closure(f, x)
+    on = [y for y in on if not any(_conflicts(f, y, g) for g in group)]
+    on = _drop_unmet(f, on)
+    for g in group:
+        if g not in on:
+            on.append(g)
+    return _drop_masters(f, on)
+
+
+def switch_off(f, on, x):
+    """The cheats that are on after x is switched off: without x, the cheats that require it, and the master cheats
+    that nothing on needs any more."""
+    return _drop_masters(f, _drop_unmet(f, [y for y in on if y != x]))
+
+
+def _drop_masters(f, on):
+    needed = set()
+    for y in on:
+        if not f.cheat(y).master:
+            needed.update(_closure(f, y))
+    return [y for y in on if y in needed]
 
 
 def _drop_unmet(f, on):

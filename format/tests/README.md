@@ -7,9 +7,10 @@ Made-up `.mncf` files and `.mncp` packs, each with the result every reader of `m
 | `cases/` | One case per `.toml` file: a file, the runtime it is applied in, and the expected results |
 | `packs/` | One pack case per `.toml` file; `packs/files/` holds what goes into the ZIP files |
 | `convert/` | One conversion case per `.toml` file: Atmosphère files and made-up code modules, and next to it the exact `.mncf` text every converter writes |
+| `passes/` | One pass case per `.toml` file: a file, a runtime, and steps of what the player and the game do, each with the changes of one pass and the states after it ([spec, section 11.5](../spec/mncf-1.md#115-a-pass)) |
 | `sign.py` | Writes the signed files from their unsigned sources |
 
-Both libraries run the whole suite: `python format/lib/python/tests/conformance.py` and `sh format/lib/java/build.sh`.
+Both libraries run the whole suite: `python format/lib/python/tests/conformance.py` and `sh format/lib/java/build.sh`. Their `--dump` output is the same, case for case.
 
 ## A file case
 
@@ -87,6 +88,54 @@ The memory of a case is the modules' images, the regions and the `[[env.memory]]
 | `syntax`, `build`, `code` | `raw` | The entry used |
 
 A case shows at most one problem per cheat, so that the reason does not depend on the order in which a reader checks. Where the order is the rule, as unknown keys before broken values, the case says so in `about`.
+
+## A pass case
+
+```toml
+about = "What the case shows."
+text = '''
+format = "mncf/1"
+...
+'''                          # or file = ..., or hex = ..., as in a file case
+rate = 4                     # optional: passes per second, for timed cheats; default 60
+
+[env]                        # the runtime, as in a file case: modules, regions, memory, held, on, off, values ...
+
+[expect]                     # optional: states after loading, for the cheats listed
+cheat.money = { state = "on", reason = "" }
+
+[[step]]                     # what happens before one pass, in this order:
+about = "What the step shows."                    # optional
+memory = [ { at = 0x10000010, hex = "05 00" } ]  # the game changes guest memory
+values = { "money.count" = 500 }                 # the player sets values
+off = ["speed"]                                  # the player switches cheats off
+on = ["money"]                                   # ... and on
+held = ["ZL"]                                    # the buttons held from now on
+press = ["ZL+R"]                                 # presses shorter than a pass
+now = 1.5                                        # optional: the time of the pass, in seconds
+pass = false                                     # optional: no pass in this step
+stop = true                                      # optional: instead of a pass, the engine stops
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" } ]   # default []
+  shown.hp = [ { label = "HP", type = "u16", value = 42 } ]                      # default {}
+  cheat.money = { state = "on", reason = "" }    # states after the pass, for the cheats listed
+```
+
+The memory of a pass case is the same as a file case's. The changes of each pass are made in it before the next step, as a runtime makes them: `patch`, `restore` and `write` put their bytes at their address; `hook`, `unhook` and `raw` change no memory.
+
+`changes` lists every change of the step's pass, in order, and `shown` every monitor that read values in it; both are compared whenever the step has a pass or stops. As with operations, only the keys a change or a value gives are compared:
+
+| Key | For | What |
+|---|---|---|
+| `kind` | all | `patch`, `restore`, `hook`, `unhook`, `write` or `raw` |
+| `address` | all but `raw` | The address, after a pointer path |
+| `bytes` | `patch`, `restore`, `write` | The bytes to write. Hexadecimal digits in any case |
+| `action`, `value` | `hook` | The action and the value the function returns, absent for `"skip"` |
+| `cheat` | `write`, `raw` | The cheat the change is for |
+| `syntax`, `build`, `code` | `raw` | The raw entry to run |
+| `label`, `type`, `value` | shown values | What a monitor read; `label` is absent where the `read` has none |
+
+A step lists only the keys above; a reader's runner refuses any other, so that a mistyped key cannot pass unnoticed.
 
 ## A pack case
 

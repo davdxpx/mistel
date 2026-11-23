@@ -245,6 +245,30 @@ final class Values {
         return Double.parseDouble(n.toString());
     }
 
+    /**
+     * The number that the bytes hold as a number type, in the platform's byte order: a Long, a
+     * BigInteger for a u64 of 2^63 or more, or a Double for f32 and f64.
+     */
+    static Object decode(String t, byte[] raw, boolean bigEndian) {
+        long bits = 0;
+        int size = raw.length;
+        for (int i = 0; i < size; i++) {
+            int b = raw[bigEndian ? i : size - 1 - i] & 0xFF;
+            bits = (bits << 8) | b;
+        }
+        if (t.equals("f32")) {
+            return (double) Float.intBitsToFloat((int) bits);
+        }
+        if (t.equals("f64")) {
+            return Double.longBitsToDouble(bits);
+        }
+        if (signed(t)) {
+            int shift = 64 - 8 * size;
+            return (bits << shift) >> shift;
+        }
+        return unsigned(bits);
+    }
+
     /** The bytes of the number v as type t, in the platform's byte order. */
     static byte[] encode(String t, Object v, boolean bigEndian) {
         int size = typeSize(t);

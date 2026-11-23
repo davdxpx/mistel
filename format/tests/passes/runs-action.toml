@@ -1,0 +1,83 @@
+about = """`run = "action"`: the cheat waits for its first press. Each press writes once; the patch is applied at the \
+first press and stays until the cheat is switched off (sections 7.2, 7.3 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "a"
+name = "a"
+run = "action"
+press = "ZL+R"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E"
+  bytes = "00 10 20 1E"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+on = ["a"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x200, hex = "00 10 2E 1E" } ]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+cheat.a = { state = "waiting", reason = "" }
+
+[[step]]
+  [step.expect]
+  cheat.a = { state = "waiting", reason = "" }
+
+[[step]]
+held = ["R", "ZL"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "a", address = 0x10000010, bytes = "01" },
+  ]
+  cheat.a = { state = "on", reason = "" }
+
+[[step]]
+about = "Still held: no new press, and the patch stays."
+  [step.expect]
+  cheat.a = { state = "on", reason = "" }
+
+[[step]]
+held = []
+  [step.expect]
+  cheat.a = { state = "on", reason = "" }
+
+[[step]]
+press = ["ZL+R"]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "a", address = 0x10000010, bytes = "01" } ]
+
+[[step]]
+off = ["a"]
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E" } ]
+  cheat.a = { state = "off", reason = "" }
+
+[[step]]
+on = ["a"]
+  [step.expect]
+  cheat.a = { state = "waiting", reason = "" }

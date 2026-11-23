@@ -3,6 +3,7 @@
 Reads, writes and converts `.mncf` files as [the spec](../../spec/mncf-1.md) says:
 
 - **Read:** parse and check a file, identify the build that runs, resolve every location, and give each cheat its state, its reason and the bytes a runtime writes. Signatures and `.mncp` packs too.
+- **Run:** a reference pass engine (spec, section 11.5): it takes what the player does and the guest memory of each pass, and gives the patches, restores, hooks and writes of the pass as one batch, each cheat's state and what the monitors read.
 - **Write:** any file in one fixed layout, so that a program can save what it read or made.
 - **Convert:** Atmosphère cheat files to `.mncf`, with all a file and its code module say, and `.mncf` back to Atmosphère for one build (spec, section 15).
 
@@ -31,6 +32,26 @@ for c in ev.cheats:
 - `Runtime` says what the runtime can do: `capabilities` (section 11.1), `extensions` (default `raw/1` and `arm64-imm/1`), `raw_syntaxes`, `arch`, `held` buttons, and `build` for a runtime that names its build itself.
 - Each operation comes back resolved: a patch's address, `expect` and `bytes` (for `arm64-imm/1`, the encoded instruction), a write's bytes in the platform's byte order, an override's stub, a condition's address and value.
 - `mncf.pack.read_pack(data, trust)` reads a pack: its manifest's signature result and each listed file with its status `ok`, `hash` or `missing`.
+
+## Run
+
+```python
+eng = mncf.Engine(f, rt, mncf.Choices(on=['money']), rate=60)   # rate: passes per second, for timed cheats
+eng.switch('speed', True)                  # between passes: what the player does
+eng.set_value('money.count', 5000)
+eng.hold(['ZL'])                           # the buttons held now
+eng.press('ZL+R')                          # a press shorter than a pass
+p = eng.tick(read_guest_memory)            # one pass; tick(memory, now=seconds) for a clock of the runtime's
+for ch in p.changes:                       # code changes first (one stop), then writes and raw entries
+    print(ch.as_dict())                    # {'kind': 'patch', 'address': ..., 'bytes': '69 12 00 B9'}
+p.cheats, p.shown                          # every cheat's state after the pass; monitor values by cheat
+changes = eng.stop()                       # puts back every place the cheats changed
+```
+
+- The engine reads guest memory only through the reader it is given and changes nothing itself: the caller makes the changes of each pass, in order. It keeps the original bytes of every place it changed and puts them back when no cheat that is on covers the place any more.
+- `patch` and `restore` come with an address and bytes, `hook` with an address, action and value (a runtime without `code-bytes` hooks overrides), `unhook` with an address, `write` with an address and bytes, `raw` with the raw entry to run in this pass.
+- A cheat's state after a pass is `off` (reason `done` for a once or timed cheat that switched itself off), `on`, `waiting` (for buttons, or `path-broken`) or `refused` with a reason, which can come up while the game runs: `expect-mismatch` when the code at a place changed, `value-out-of-range` for a value the player set.
+- Timed cheats measure time from the `now` the caller gives each pass, or, where it gives none, from the number of passes divided by `rate`.
 
 ## Write
 
@@ -70,4 +91,4 @@ python -m unittest discover -s format/lib/python/tests
 python format/lib/python/tests/conformance.py
 ```
 
-The first runs the unit tests and the [conformance suite](../../tests/); the second runs only the suite and prints one line for each difference. `conformance.py --dump` prints every case's results as JSON, to compare with another library. The tests make their own code modules (NSO files with LZ4 segments from a small compressor in `tests/synthetic.py`) and cheat files; nothing of a real game is in them.
+The first runs the unit tests and the [conformance suite](../../tests/), the pass cases among them; the second runs only the suite and prints one line for each difference. `conformance.py --dump` prints every case's results as JSON, to compare with another library. The tests make their own code modules (NSO files with LZ4 segments from a small compressor in `tests/synthetic.py`) and cheat files; nothing of a real game is in them.

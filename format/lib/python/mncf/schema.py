@@ -378,6 +378,8 @@ def _fill_cheat(c, t, ctx):
     if c.run == 'monitor':
         if kinds & {Patch, Write, Override} or Read not in kinds:
             raise _invalid('run')
+    elif c.run == 'once' and kinds & {Patch, Override}:
+        raise _invalid('run')
     elif Read in kinds:
         raise _invalid('read')
     if not (kinds - {Condition}) and not c.raw:
@@ -696,11 +698,11 @@ def _condition(t, c, ctx):
         if 'at' not in v:
             raise _invalid('when.value.at')
         place_at = location(v['at'], 'when.value.at', ctx)
-        if not isinstance(other_type, str) or other_type not in NUMBER_TYPES:
+        if not isinstance(other_type, str) or other_type not in NUMBER_TYPES or                 (op in ('&', '!&') and other_type not in INT_TYPES):
             raise _invalid('when.value.type')
         cond.value = Place(place_at, other_type)
         return cond
-    ref = _ref(v, c, 'when.value', VALUE_TYPES)
+    ref = _ref(v, c, 'when.value', VALUE_TYPES if op not in ('&', '!&') else tuple(INT_TYPES) + ('bool',))
     cond.value = ref if ref is not None else _value_number(typ, v)
     if cond.value is None:
         raise _invalid('when.value')

@@ -1,0 +1,72 @@
+about = """`op = "changed"` compares the bytes at its place with the bytes it read at the cheat's test before; at the \
+first test after the cheat is switched on there is nothing to compare with, so it does not hold. Every condition of a \
+cheat is tested in each of its tests, so a `changed` condition compares with the test before even when another \
+condition already decided the result (sections 7.9 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "ch"
+name = "ch"
+default = true
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "both"
+name = "both"
+default = true
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x14 }
+  type = "u8"
+  op = "=="
+  value = 1
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x21 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[step]]
+about = "The first test: nothing to compare with."
+
+[[step]]
+
+[[step]]
+memory = [ { at = 0x10000010, hex = "05" } ]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "ch", address = 0x10000020, bytes = "01" } ]
+
+[[step]]
+about = "both's first condition is true now, but nothing changed since the test before."
+memory = [ { at = 0x10000014, hex = "01" } ]
+
+[[step]]
+memory = [ { at = 0x10000010, hex = "06" } ]
+  [step.expect]
+  changes = [
+    { kind = "write", cheat = "ch", address = 0x10000020, bytes = "01" },
+    { kind = "write", cheat = "both", address = 0x10000021, bytes = "01" },
+  ]

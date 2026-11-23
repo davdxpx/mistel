@@ -1,0 +1,50 @@
+about = """A value the player sets in a pass between two tests of an `interval` is written at the cheat's next test: \
+in the passes in between, nothing of the cheat changes (sections 7.9 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "imm"
+name = "imm"
+default = true
+interval = 2
+  [cheat.values.n]
+  type = "u16"
+  default = 5
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$n" }
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x300, hex = "08 00 80 52" } ]
+
+[[step]]
+about = "Pass 1: a test."
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000300, bytes = "A8 00 80 52" } ]
+
+[[step]]
+about = "Pass 2: between two tests."
+values = { "imm.n" = 6 }
+
+[[step]]
+about = "Pass 3: a test."
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000300, bytes = "C8 00 80 52" } ]

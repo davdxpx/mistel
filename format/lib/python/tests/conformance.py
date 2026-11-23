@@ -37,8 +37,39 @@ def trust_list(case):
     return trust
 
 
-def runtime(env):
-    modules, chunks = {}, []
+class Memory:
+    """The guest memory of a case: the modules' images, the regions, and pieces of memory of their own."""
+
+    def __init__(self):
+        self.chunks = []
+
+    def add(self, start, data):
+        self.chunks.append((start, bytearray(data)))
+
+    def put(self, at, raw):
+        """Writes bytes into the piece they lie in, or makes a piece of their own."""
+        for start, buf in self.chunks:
+            if start <= at and at + len(raw) <= start + len(buf):
+                buf[at - start:at - start + len(raw)] = raw
+                return
+        self.chunks.append((at, bytearray(raw)))
+
+    def read(self, address, size):
+        for start, buf in self.chunks:
+            if start <= address and address + size <= start + len(buf):
+                return bytes(buf[address - start:address - start + size])
+        return None
+
+
+def put_pieces(memory, pieces):
+    for piece in pieces:
+        memory.put(piece['at'], bytes.fromhex(piece['hex']) if 'hex' in piece else bytes(piece['size']))
+
+
+def runtime(env, memory=None):
+    """The runtime of a case's [env] table, with its guest memory in `memory` (a Memory) when one is given."""
+    memory = memory if memory is not None else Memory()
+    modules = {}
     for name, m in env.get('modules', {}).items():
         data = bytearray(m['size'])
         for piece in m.get('bytes', []):
@@ -46,30 +77,15 @@ def runtime(env):
             data[piece['at']:piece['at'] + len(raw)] = raw
         sections = {k: tuple(m[k]) for k in ('code', 'rodata', 'data') if k in m}
         modules[name] = mncf.Module(m['id'], m.get('base', 0), bytes(data), m['size'], sections or None)
-        chunks.append((m.get('base', 0), bytearray(data)))
+        memory.add(m.get('base', 0), data)
     regions = {}
     for name, r in env.get('regions', {}).items():
         regions[name] = (r['base'], r['size'])
-        chunks.append((r['base'], bytearray(r['size'])))
-    for piece in env.get('memory', []):
-        raw = bytes.fromhex(piece['hex']) if 'hex' in piece else bytes(piece['size'])
-        at = piece['at']
-        for start, buf in chunks:
-            if start <= at and at + len(raw) <= start + len(buf):
-                buf[at - start:at - start + len(raw)] = raw
-                break
-        else:
-            chunks.append((at, bytearray(raw)))
-
-    def memory(address, size):
-        for start, buf in chunks:
-            if start <= address and address + size <= start + len(buf):
-                return bytes(buf[address - start:address - start + size])
-        return None
-
+        memory.add(r['base'], bytes(r['size']))
+    put_pieces(memory, env.get('memory', []))
     return mncf.Runtime(
         env.get('platform', 'switch'), game_id=env.get('game'), arch=env.get('arch'), modules=modules,
-        regions=regions, memory=memory, capabilities=env.get('capabilities', mncf.CAPABILITIES),
+        regions=regions, memory=memory.read, capabilities=env.get('capabilities', mncf.CAPABILITIES),
         extensions=env.get('extensions', mncf.KNOWN_EXTENSIONS), raw_syntaxes=env.get('raw', ['atmosphere']),
         build=env.get('build'), held=env.get('held', []))
 
@@ -90,6 +106,99 @@ def file_results(case, folder):
         out['cheat'][c.id] = {'state': c.state, 'reason': c.reason, 'uses': c.uses,
                               'ops': [op.as_dict() for op in c.ops]}
     return out
+
+
+STEP_KEYS = {'about', 'memory', 'values', 'off', 'on', 'held', 'press', 'now', 'pass', 'stop', 'expect'}
+STEP_EXPECT_KEYS = {'changes', 'shown', 'cheat'}
+
+
+def _states(states):
+    return {c.id: {'state': c.state, 'reason': c.reason} for c in states}
+
+
+def pass_results(case, folder):
+    """What the engine does in a pass case: the states after loading, and for each step the changes of its pass,
+    every cheat's state after it, and what the monitors read. The changes of each pass are made in the memory."""
+    try:
+        f = mncf.load(case_bytes(case, folder), trust_list(case))
+    except mncf.MncfError as e:
+        return {'error': e.code}
+    env = case.get('env', {})
+    memory = Memory()
+    rt = runtime(env, memory)
+    eng = mncf.Engine(f, rt, mncf.Choices(env.get('on', []), env.get('off', []), env.get('values', {})),
+                      rate=case.get('rate', 60))
+    out = {'load': _states(eng.states()), 'steps': []}
+    for step in case.get('step', []):
+        put_pieces(memory, step.get('memory', []))
+        for key, value in step.get('values', {}).items():
+            eng.set_value(key, value)
+        for cheat_id in step.get('off', []):
+            eng.switch(cheat_id, False)
+        for cheat_id in step.get('on', []):
+            eng.switch(cheat_id, True)
+        if 'held' in step:
+            eng.hold(step['held'])
+        for combo in step.get('press', []):
+            eng.press(combo)
+        got = {}
+        if step.get('stop', False):
+            got['changes'] = [ch.as_dict() for ch in eng.stop()]
+            got['shown'] = {}
+        elif step.get('pass', True):
+            p = eng.tick(memory.read, step.get('now'))
+            got['changes'] = [ch.as_dict() for ch in p.changes]
+            got['shown'] = {k: [v.as_dict() for v in vs] for k, vs in p.shown.items()}
+        for ch in got.get('changes', []):
+            if ch['kind'] in ('patch', 'restore', 'write'):
+                memory.put(ch['address'], bytes.fromhex(ch['bytes']))
+        got['cheat'] = _states(eng.states())
+        out['steps'].append(got)
+    return out
+
+
+def compare_passes(case, got):
+    """The differences between a pass case's expected results and what the engine did, as lines."""
+    if 'error' in got:
+        return [f'error: the file does not load ({got["error"]})']
+    problems = []
+
+    def states(where, want, have):
+        for cid, w in want.items():
+            if cid not in have:
+                problems.append(f'{where}{cid}: no such cheat')
+                continue
+            for key in ('state', 'reason'):
+                if key in w and w[key] != have[cid][key]:
+                    problems.append(f'{where}{cid}.{key}: expected {w[key]!r}, got {have[cid][key]!r}')
+
+    def items(where, want, have):
+        if len(want) != len(have):
+            problems.append(f'{where}: expected {len(want)}, got {len(have)}: {have!r}')
+            return
+        for i, (w, g) in enumerate(zip(want, have)):
+            for k, v in w.items():
+                if k not in g or not _same(v, g[k], k):
+                    problems.append(f'{where}[{i}].{k}: expected {v!r}, got {g.get(k)!r}')
+
+    states('load: ', case.get('expect', {}).get('cheat', {}), got['load'])
+    steps = case.get('step', [])
+    for n, (step, g) in enumerate(zip(steps, got['steps']), 1):
+        want = step.get('expect', {})
+        for key in sorted(set(step) - STEP_KEYS) + sorted(set(want) - STEP_EXPECT_KEYS):
+            problems.append(f'step {n}: unknown key {key}')
+        if 'changes' in g:
+            items(f'step {n}: changes', want.get('changes', []), g['changes'])
+            shown_want = want.get('shown', {})
+            if set(shown_want) != set(g['shown']):
+                problems.append(f'step {n}: shown: expected {sorted(shown_want)}, got {sorted(g["shown"])}')
+            for cid, values in shown_want.items():
+                if cid in g['shown']:
+                    items(f'step {n}: shown.{cid}', values, g['shown'][cid])
+        elif 'changes' in want or 'shown' in want:
+            problems.append(f'step {n}: expects changes, but has no pass')
+        states(f'step {n}: ', want.get('cheat', {}), g['cheat'])
+    return problems
 
 
 def pack_results(case, folder):
@@ -198,12 +307,22 @@ def compare(expect, got, folder=None):
     return problems
 
 
+KINDS = (('cases', file_results), ('packs', pack_results), ('convert', convert_results), ('passes', pass_results))
+
+
 def cases():
     """(name, case table, results function, folder) for every case of the suite, in name order."""
-    for kind, run in (('cases', file_results), ('packs', pack_results), ('convert', convert_results)):
+    for kind, run in KINDS:
         folder = SUITE / kind
         for path in sorted(folder.glob('*.toml')):
             yield f'{kind}/{path.stem}', tomllib.loads(path.read_text(encoding='utf-8')), run, folder
+
+
+def check(name, case, got, folder):
+    """The differences between a case's expected results and what this library gives, as lines."""
+    if name.startswith('passes/'):
+        return compare_passes(case, got)
+    return compare(case.get('expect', {}), got, folder)
 
 
 def main(argv):
@@ -213,7 +332,7 @@ def main(argv):
         total += 1
         got = run(case, folder)
         results[name] = got
-        problems = compare(case.get('expect', {}), got, folder)
+        problems = check(name, case, got, folder)
         if problems:
             failed += 1
             for p in problems:

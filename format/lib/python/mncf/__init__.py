@@ -3,6 +3,7 @@
     f = mncf.load(data, trust)                 # bytes of an .mncf file; raises mncf.MncfError
     rt = mncf.Runtime('switch', modules={'main': mncf.Module('A1B2C3D4E5F60718', base, image, sections=...)})
     ev = mncf.evaluate(f, rt)                  # the build that runs, and each cheat's state, reason and operations
+    eng = mncf.Engine(f, rt)                   # the cheats pass by pass: eng.tick(memory) gives each pass's changes
 
 Writing is in mncf.write, converting Atmosphère cheat files in mncf.convert, packs in mncf.pack.
 """
@@ -10,6 +11,7 @@ import datetime
 import tomllib
 
 from . import ed25519, encode, platforms, signature
+from .engine import Change, CheatState, Engine, Pass, Shown
 from .evaluate import CAPABILITIES, Choices, CheatResult, Evaluation, Module, ResolvedOp, Runtime, evaluate, find_all, \
     identify
 from .model import MncfError, MncfFile, SignatureResult
@@ -17,9 +19,9 @@ from .schema import KNOWN_EXTENSIONS, build_file
 from .signature import TrustList, key_id, read_trust_list
 
 __all__ = ['load', 'evaluate', 'identify', 'find_all', 'Runtime', 'Module', 'Choices', 'Evaluation', 'CheatResult',
-           'ResolvedOp', 'MncfError', 'MncfFile', 'SignatureResult', 'TrustList', 'key_id', 'read_trust_list',
-           'KNOWN_EXTENSIONS',
-           'CAPABILITIES', 'ed25519', 'encode', 'platforms', 'signature']
+           'ResolvedOp', 'Engine', 'Pass', 'Change', 'CheatState', 'Shown', 'MncfError', 'MncfFile', 'SignatureResult',
+           'TrustList', 'key_id', 'read_trust_list', 'KNOWN_EXTENSIONS', 'CAPABILITIES', 'ed25519', 'encode', 'platforms',
+           'signature']
 
 
 def decode(data):
