@@ -1,0 +1,64 @@
+about = """In a runtime that hooks functions (`code-hook`, no `code-bytes`), an override becomes a `hook` change when \
+its cheat is switched on, a new `hook` when the value it returns changes, and an `unhook` when it is switched off. \
+Hooks carry no bytes (sections 7.5, 11.1 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "ret"
+name = "ret"
+  [cheat.values.v]
+  type = "u16"
+  default = 1
+  [[cheat.override]]
+  function = { module = "main", offset = 0x400 }
+  action = "return"
+  value = "$v"
+
+[[cheat]]
+id = "skip"
+name = "skip"
+  [[cheat.override]]
+  function = { module = "main", offset = 0x500 }
+  action = "skip"
+'''
+
+[env]
+platform = "switch"
+capabilities = ["guest-read", "guest-write", "code-hook", "buttons", "display"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+
+[[step]]
+on = ["skip", "ret"]
+  [step.expect]
+  changes = [
+    { kind = "hook", address = 0x8000400, action = "return", value = 1 },
+    { kind = "hook", address = 0x8000500, action = "skip" },
+  ]
+
+[[step]]
+values = { "ret.v" = 2 }
+  [step.expect]
+  changes = [ { kind = "hook", address = 0x8000400, action = "return", value = 2 } ]
+
+[[step]]
+off = ["skip"]
+  [step.expect]
+  changes = [ { kind = "unhook", address = 0x8000500 } ]
+
+[[step]]
+stop = true
+  [step.expect]
+  changes = [ { kind = "unhook", address = 0x8000400 } ]

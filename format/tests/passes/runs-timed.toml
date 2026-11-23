@@ -1,0 +1,89 @@
+about = """`run = "timed"` without a time from the runtime: the time of a pass is the number of passes before it \
+divided by `rate`, the passes per second. The cheat's time starts at its first pass after it is switched on; in the \
+first pass at least `duration` seconds later it is switched off before it works, its patch is restored, and it \
+shows as done (sections 7.2 and 11.5)."""
+rate = 4
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "t"
+name = "t"
+run = "timed"
+duration = 1
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E"
+  bytes = "00 10 20 1E"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x200, hex = "00 10 2E 1E" } ]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[step]]
+about = "Pass 1, time 0."
+on = ["t"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "t", address = 0x10000010, bytes = "01" },
+  ]
+  cheat.t = { state = "on", reason = "" }
+
+[[step]]
+about = "Time 0.25."
+  [step.expect]
+  changes = [ { kind = "write", cheat = "t", address = 0x10000010, bytes = "01" } ]
+
+[[step]]
+about = "Time 0.5."
+  [step.expect]
+  changes = [ { kind = "write", cheat = "t", address = 0x10000010, bytes = "01" } ]
+
+[[step]]
+about = "Time 0.75."
+  [step.expect]
+  changes = [ { kind = "write", cheat = "t", address = 0x10000010, bytes = "01" } ]
+  cheat.t = { state = "on", reason = "" }
+
+[[step]]
+about = "Time 1: the time is over."
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E" } ]
+  cheat.t = { state = "off", reason = "done" }
+
+[[step]]
+  [step.expect]
+  cheat.t = { state = "off", reason = "done" }
+
+[[step]]
+about = "Switched on again at time 1.5, it runs until time 2.5."
+on = ["t"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "t", address = 0x10000010, bytes = "01" },
+  ]
+  cheat.t = { state = "on", reason = "" }

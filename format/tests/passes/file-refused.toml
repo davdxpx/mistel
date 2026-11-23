@@ -1,0 +1,35 @@
+about = """The cheats of a file for another game are refused, and its passes change nothing (sections 11.2 and \
+11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "w"
+name = "w"
+default = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+game = "0100000000DEF000"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+cheat.w = { state = "refused", reason = "game-mismatch" }
+
+[[step]]
+on = ["w"]
+  [step.expect]
+  cheat.w = { state = "refused", reason = "game-mismatch" }
