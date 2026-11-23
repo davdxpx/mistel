@@ -1,0 +1,115 @@
+about = """Pointer paths are followed again in every pass. While a path of a cheat does not resolve, the cheat waits \
+with `path-broken` and nothing of it is applied: its patch is restored. When the pointer moves, the writes follow it. \
+A patch behind a pointer path is checked against `expect` wherever the path leads it; at a place that holds other \
+bytes the cheat is refused and its old place restored (sections 6.2, 7.4 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "p"
+name = "p"
+default = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x100, path = [0x8] }
+  type = "u32"
+  value = 7
+
+[[cheat]]
+id = "q"
+name = "q"
+default = true
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E"
+  bytes = "00 10 20 1E"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x100, path = [0x10] }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "pp"
+name = "pp"
+default = true
+  [[cheat.patch]]
+  at = { region = "heap", offset = 0x200, path = [0x0] }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9" },
+  { at = 0x200, hex = "00 10 2E 1E" },
+]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+cheat.p = { state = "waiting", reason = "path-broken" }
+cheat.q = { state = "waiting", reason = "path-broken" }
+cheat.pp = { state = "waiting", reason = "path-broken" }
+
+[[step]]
+  [step.expect]
+  cheat.p = { state = "waiting", reason = "path-broken" }
+  cheat.q = { state = "waiting", reason = "path-broken" }
+
+[[step]]
+memory = [
+  { at = 0x10000100, hex = "00 08 00 10 00 00 00 00" },
+  { at = 0x10000200, hex = "00 01 00 08 00 00 00 00" },
+]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" },
+    { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E" },
+    { kind = "write", cheat = "p", address = 0x10000808, bytes = "07 00 00 00" },
+    { kind = "write", cheat = "q", address = 0x10000810, bytes = "01" },
+  ]
+  cheat.p = { state = "on", reason = "" }
+  cheat.q = { state = "on", reason = "" }
+  cheat.pp = { state = "on", reason = "" }
+
+[[step]]
+about = "The pointer moves; pp's pointer moves to bytes that are not its expect."
+memory = [
+  { at = 0x10000100, hex = "00 09 00 10 00 00 00 00" },
+  { at = 0x10000200, hex = "00 02 00 08 00 00 00 00" },
+]
+  [step.expect]
+  changes = [
+    { kind = "restore", address = 0x8000100, bytes = "68 12 00 B9" },
+    { kind = "write", cheat = "p", address = 0x10000908, bytes = "07 00 00 00" },
+    { kind = "write", cheat = "q", address = 0x10000910, bytes = "01" },
+  ]
+  cheat.pp = { state = "refused", reason = "expect-mismatch" }
+
+[[step]]
+memory = [ { at = 0x10000100, hex = "00 00 00 00 00 00 00 00" } ]
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E" } ]
+  cheat.p = { state = "waiting", reason = "path-broken" }
+  cheat.q = { state = "waiting", reason = "path-broken" }
+
+[[step]]
+about = "A pointer to a place outside guest memory."
+memory = [ { at = 0x10000100, hex = "00 00 00 20 00 00 00 00" } ]
+  [step.expect]
+  cheat.p = { state = "waiting", reason = "path-broken" }

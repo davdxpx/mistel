@@ -174,12 +174,12 @@ A cheat does its work through one or more operations: `patch` (section 7.4), `wr
 | `run` | Meaning |
 |---|---|
 | `"on"` | While the cheat is on, its patches and overrides stay applied and its writes repeat at every pass. Switching it off restores what its patches and overrides changed |
-| `"once"` | Its writes happen once, when it is switched on. It then shows as done and can be run again |
-| `"action"` | Its writes happen once each time its `press` buttons are pressed; its patches and overrides are applied at the first press and stay until the cheat is switched off. Needs `press`; `press` is only for this mode |
-| `"timed"` | As `"on"`, for `duration` seconds (a number above 0), then it switches itself off. `duration` is only for this mode |
+| `"once"` | Its writes happen once, in the first pass in which it works after it is switched on. It then switches itself off and shows as done (reason `done`); switching it on again runs it again. It has no patches or overrides, which work only while a cheat is on (`invalid:run`) |
+| `"action"` | Its writes happen once each time its `press` buttons are pressed; its patches and overrides are applied from the first press until the cheat is switched off. Until the first press it waits. Needs `press`; `press` is only for this mode |
+| `"timed"` | As `"on"`, for `duration` seconds (a number above 0) from its first pass, then it switches itself off and shows as done. `duration` is only for this mode |
 | `"monitor"` | It only reads and shows values (section 7.7): it has `read` operations and no others. `read` is only for this mode |
 
-A **pass** is one round of the runtime's cheat work, about once per frame the game presents.
+A **pass** is one round of the runtime's cheat work, about once per frame the game presents. Section 11.5 says what happens in one.
 
 ### 7.3 Buttons
 
@@ -190,6 +190,8 @@ A **pass** is one round of the runtime's cheat work, about once per frame the ga
 | `press` | For `run = "action"`: the buttons that trigger it |
 
 Buttons are written as names joined by `+`, each name once: `"ZL"`, `"L+DUP"`. The names are the platform's (Appendix A). A runtime SHOULD let the player change them. `toggle` does not hold a cheat back: a cheat with `toggle` that is on works at once.
+
+A combination is **pressed** in a pass when all of its buttons are held in that pass and were not all held in the pass before, or when the runtime saw them pressed together since the last pass, for a press shorter than a pass. Other buttons held at the same time do not matter, so pressing `L+DUP` also presses `DUP`. `hold` and `press` are for a cheat's core operations: a cheat that uses its `raw` entry tests buttons in its raw code (section 10.1).
 
 ### 7.4 Patches and writes
 
@@ -203,7 +205,7 @@ A **patch** changes the original code, or read-only data, at one place:
   asm = { expect = "str w8, [x19, #0x10]", bytes = "str w9, [x19, #0x10]" }
 ```
 
-- `expect` is REQUIRED and has the same length as `bytes`. Before each write, the runtime compares the bytes at the place with `expect` and, if they differ and are not `bytes` either, turns the cheat off with `expect-mismatch`. A place that already holds `bytes` is a patch that is already applied, not a mismatch.
+- `expect` is REQUIRED and has the same length as `bytes`. Before each write, the runtime compares the bytes at the place with `expect` and, if they differ and are not `bytes` either, turns the cheat off with `expect-mismatch`. A place that already holds `bytes` is a patch that is already applied, not a mismatch. The bytes compared are the ones there when the patch is applied, or, where the runtime changed them itself, the original bytes it kept (section 11.5).
 - `asm` is for people: the same as `expect` and `bytes`, as instructions. Readers MUST use `expect` and `bytes` and MAY ignore `asm`. `mistel check` checks that they agree.
 - A patch needs a runtime that can change code bytes (section 11.1). Where code exists only as recompiled functions, a patch does not apply (`capability-missing`); an override (section 7.5) can.
 
@@ -280,7 +282,7 @@ A value id is an id (section 2). Keys of a choice list are whole numbers written
 "17" = "Phoenix feather"
 ```
 
-A runtime keeps the values a player set, per game, and uses them again at the next start.
+A runtime keeps the values a player set, per game, and uses them again at the next start. A value set while the game runs is used from the next pass on (section 11.5).
 
 ### 7.7 Monitors
 
@@ -334,23 +336,25 @@ Conditions make a cheat act only when the game is in a certain state: heal when 
 | Key | Meaning |
 |---|---|
 | `at`, `type` | The value to test, read as a write's place is (section 7.4). `type` is a number type |
-| `op` | `==`, `!=`, `<`, `<=`, `>`, `>=`; `&` (the two share a set bit), `!&` (they share none), for integer types only; `between` (`value` is `[low, high]`, two numbers of the type, `low` not above `high`, both included); `changed` (differs from the last pass; no `value`) |
-| `value` | A number of the type, a player value (`"$limit"`), or another place to compare with: `{ at = { ... }, type = "u16" }` |
+| `op` | `==`, `!=`, `<`, `<=`, `>`, `>=`; `&` (the two share a set bit), `!&` (they share none), for integer types only; `between` (`value` is `[low, high]`, two numbers of the type, `low` not above `high`, both included); `changed` (the bytes at the place differ from the ones read at the cheat's test before; at its first test after it is switched on, it does not hold; no `value`) |
+| `value` | A number of the type, a player value (`"$limit"`), or another place to compare with: `{ at = { ... }, type = "u16" }`. For `&` and `!&`, a player value is of an integer type or `bool` (`invalid:when.value`) and another place has an integer type (`invalid:when.value.type`) |
+
+Numbers compare by their value, whatever their types: a `u8` of 3 is below an `f32` of 3.5. A `bool` player value counts as 1 or 0. A float that is not a number is unequal to everything and neither below nor above anything.
 
 Keys on the cheat:
 
 | Key | Meaning |
 |---|---|
 | `match` | `"all"` (default): every condition must hold. `"any"`: one is enough |
-| `trigger` | `"while"` (default): the cheat acts in every pass in which the conditions hold. `"enter"`: it acts once each time the conditions start to hold, that is, they did not hold in the pass before |
-| `interval` | Test the conditions every this many passes instead of every pass: a whole number of at least 1. Default 1 |
+| `trigger` | `"while"` (default): the cheat acts in every pass in which the conditions hold. `"enter"`: it acts once each time the conditions start to hold, that is, they did not hold at its test before, or this is its first test after it was switched on |
+| `interval` | Test the conditions, and work, only in every this many passes instead of every pass, counted from the cheat's first pass after it is switched on: a whole number of at least 1. Default 1. In the passes in between, nothing of the cheat changes. It works the same for a cheat without conditions |
 
-Conditions gate everything a cheat does. Writes happen only while they hold. Patches and overrides are applied while they hold and restored when they stop holding; the runtime changes code only when the result flips, never in a pass where it stays the same.
+Conditions gate everything a cheat does. Writes happen only while they hold, and `trigger` says in which of those passes. Patches and overrides are applied while they hold and restored when they stop holding, whatever `trigger` says; the runtime changes code only when the result flips, never in a pass where it stays the same. A cheat whose conditions do not hold is still on.
 
 So that conditions cost next to nothing, a runtime SHOULD:
 
 - read each place at most once per pass, even when several conditions or cheats read it, and resolve each pointer path at most once per pass;
-- stop testing a cheat's conditions as soon as the result is known;
+- stop testing a cheat's conditions as soon as the result is known, but still read the place of each `changed` condition, which its next test compares with;
 - test all conditions before it stops any of the game's threads, and stop them only to change code;
 - with `interval`, do nothing for that cheat in the passes in between.
 
@@ -419,6 +423,8 @@ Defined syntaxes: `atmosphere` (the Atmosphère dmnt cheat code of the Switch, w
 
 A cheat MAY have both `raw` entries and core operations. A runtime that can run the core operations uses them and ignores `raw`. It uses a `raw` entry only for the build that runs, and only when the cheat has no core operations, or when the runtime lacks a capability or an extension that the core operations need. A cheat whose `raw` entries are all for other builds is off with `build-unknown`.
 
+A cheat that uses its `raw` entry runs it in every pass while it is on, as the format it came from runs it (section 11.5). The raw code tests buttons and memory itself, so `hold`, `press`, `when` and `interval` are for core operations only and do not hold such a cheat back; `run = "once"` runs the entry in one pass, and `run = "timed"` for its duration.
+
 ### 10.2 `arm64-imm/1`: a player value inside an ARM64 instruction
 
 Lets a patch write an instruction whose immediate is a player value, so that a code cheat gets a number field.
@@ -461,18 +467,18 @@ A cheat that needs a capability the runtime lacks is off with `capability-missin
 2. Check `format` and the required extensions.
 3. Identify the build (section 5).
 4. For each cheat: resolve its locations, check `expect`, and give it a state.
-5. On each pass: apply the cheats that are on, in file order.
+5. On each pass: apply the cheats that are on, in file order (section 11.5).
 
 States: `off`, `on`, `waiting` (for a button, or for a pointer path to resolve), `refused` with a reason (Appendix B). A runtime SHOULD show the reason to the player.
 
 A cheat is applied whole or not at all: if one of its locations does not resolve or one `expect` differs, the whole cheat is refused. The reason is the first problem found in this order: the file (`game-mismatch`, `signature`, a missing required extension), the cheat's own text (unknown keys before broken values), capabilities and extensions, then each operation in file order (its location, its value, its `expect`). A pointer path that does not resolve does not refuse the cheat: a cheat that is on waits with `path-broken`.
 
-When a file is loaded, the cheats that are on are the ones with `default = true` and the ones the player switched on, without the ones the player switched off, switched on one after the other in file order as section 7.8 says, so that a later one wins over an earlier one it excludes. A cheat that is on and has `hold` waits until its buttons are held.
+When a file is loaded, the cheats that are on are the ones with `default = true` and the ones the player switched on, without the ones the player switched off, switched on one after the other in file order as section 7.8 says, so that a later one wins over an earlier one it excludes. A cheat that is on and has `hold` waits until its buttons are held, and one that runs as an action waits for its first press. A cheat that uses its `raw` entry does not wait for buttons (section 10.1).
 
 
 ### 11.3 Writing and restoring
 
-- The first time a patch or an override changes a place, the runtime keeps the original bytes. When the cheat is switched off, refused, or gone after the file is loaded again, the runtime puts them back, unless another cheat that is on writes the same place.
+- The first time a patch or an override changes a place, the runtime keeps the original bytes. When the cheat is switched off, refused, waits, its conditions stop holding, or it is gone after the file is loaded again, the runtime puts them back, unless another cheat whose patch is applied writes the same place.
 - A runtime that must stop the game's threads to change code SHOULD change everything of one pass in one stop, and SHOULD compare before writing, so that a cheat that stays on costs no stop.
 - A runtime that changes the original code for its own reasons (a rewriter) refuses cheats that write over what it changed, with `runtime:<reason>`.
 
@@ -481,6 +487,40 @@ When a file is loaded, the cheats that are on are the ones with `default = true`
 - A runtime SHOULD back up the save before a cheat tagged `touches_save` is first switched on for a game, and offer to restore it.
 - If the game ends abnormally soon after a cheat was switched on, a runtime SHOULD ask at the next start whether that cheat stays off.
 - A runtime MUST NOT write outside guest memory and the game's own code, whatever a file says.
+
+### 11.5 A pass
+
+Between two passes the player switches cheats on and off (section 7.8), sets values (section 7.6), and holds and presses buttons. A value that does not fit refuses its cheat with `value-out-of-range`; once a value that fits is set, the cheat can be used again and is off. Each pass then goes through these steps, each for all cheats in file order before the next step:
+
+1. **Buttons.** The runtime finds the combinations of the file's `toggle` and `press` keys that were pressed (section 7.3).
+2. **Toggles.** Each cheat whose `toggle` was pressed is switched on or off. A master cheat and a refused cheat are not switched.
+3. **Time.** A `timed` cheat's time starts at its first pass after it is switched on. In the first pass that is at least `duration` seconds later, it is switched off and shows as done, before it works. The time of a pass is the one the runtime gives, in seconds; a runtime that gives none counts passes: the time of a pass is then the number of passes before it divided by the runtime's number of passes per second. A runtime gives the time at every pass or at none.
+4. **Work.** Each cheat that is on:
+   - If it uses its `raw` entry, it runs the entry in this pass, and nothing else of this step applies (section 10.1).
+   - With `interval = n`, it does the rest of this step only in its first pass after it is switched on and in every n-th pass after it. In the passes in between, nothing of it changes.
+   - It waits, with no reason, while not all of its `hold` buttons are held, and, if it runs as an action, until its first press.
+   - It waits with `path-broken` while a pointer path of one of its places does not resolve (section 6.2), or a place it reads cannot be read.
+   - Otherwise it tests all of its conditions; without conditions they hold. Every cheat reads guest memory as it is at the start of the pass, before any change of the pass.
+   - It **works** when the conditions hold, with `trigger = "enter"` only when they did not hold at its test before, and as an action only in a pass in which its `press` buttons were pressed. Working means: each of its writes is made, where the write has an `expect` only while its place holds that value; a monitor reads its values. From the first pass in which an action works, it counts as pressed until it is switched off.
+   - Its patches and overrides are **applied** when the conditions hold and, for an action, once it was pressed. A cheat that waits has nothing applied.
+5. **Expect.** For each applied patch, and each applied override that the runtime writes as a stub, that covers a place it did not cover in the pass before, the runtime compares the place with `expect` (section 7.4): where it changed bytes there itself, the original bytes it kept, elsewhere the bytes there now. Where the place holds the patch's bytes already, they are not written again, and `expect` is kept as the original. Where it holds anything else, the cheat is refused with `expect-mismatch` (with `outside` where the place cannot be read) and switched off with what that switches off (section 7.8); nothing of those cheats happens in this pass.
+6. **Code.** Each code byte that an applied patch or stub covers gets the byte of the last such cheat in file order; each other byte the runtime changed gets its original back. A patch or stub is written whole when one of its bytes is not what it should be. The bytes that no applied patch or stub covers any more are put back whole, in runs of consecutive bytes, except a run whose bytes all hold their originals already. An override that the runtime hooks (`code-hook`) is hooked while it is applied, hooked again when the value it returns changes, and unhooked when it is no longer applied.
+7. **Once.** A `once` cheat that worked in this pass switches itself off and shows as done. What that switches off is put back in the next pass.
+
+The changes of a pass come as one batch, in this order:
+
+| Change | Keys | Meaning |
+|---|---|---|
+| `patch` | address, bytes | Write these bytes into code at the address |
+| `restore` | address, bytes | Put these original bytes back into code at the address |
+| `hook` | address, action, value | Make the function at the address do the action, returning the value for `"return"` |
+| `unhook` | address | Let the function at the address run as it was |
+| `write` | cheat, address, bytes | Write these bytes into guest memory |
+| `raw` | cheat, syntax, build, code | Run this raw entry once |
+
+The code changes come first, in the order of their addresses, a byte change before a hook at the same address; then the writes and raw entries, in file order of their cheats and operations. A runtime that stops the game's threads for code changes makes all code changes of a batch in one stop. After a pass, each cheat has a state (section 11.2), and each monitor that worked has its values, in the order of its `read` operations.
+
+A runtime that stops, or loads the file again, first puts back every place it changed and unhooks every function it hooked.
 
 ## 12. Signatures and trust
 
@@ -597,7 +637,7 @@ A converter also writes down what it knows about the source:
 
 ## 16. Conformance
 
-The conformance suite in [`format/tests/`](../tests/) holds made-up files and packs with the results every reader must give: errors, warnings, the build, signature results, and each cheat's state, reason and resolved operations. A reader conforms to `mncf/1` when it gives those results for every case. A change to a rule of this spec comes with the cases that show it.
+The conformance suite in [`format/tests/`](../tests/) holds made-up files and packs with the results every reader must give: errors, warnings, the build, signature results, and each cheat's state, reason and resolved operations. Its pass cases give a file, a runtime and a sequence of what the player and the game do between passes, with the changes of each pass and the states after it. A reader conforms to `mncf/1` when it gives those results for every case; a runtime's pass engine, when it gives them for every pass case. A change to a rule of this spec comes with the cases that show it.
 
 ## Appendix A. Platforms
 
@@ -636,7 +676,8 @@ Other architectures have no stub yet: their runtimes apply overrides with `code-
 | `outside` | A place is not inside its module, region or guest memory (section 6.2) |
 | `pattern-not-found`, `pattern-ambiguous` | Section 6.3 |
 | `expect-mismatch` | The original bytes are not there |
-| `path-broken` | A pointer path does not resolve at the moment; the cheat waits |
+| `path-broken` | A pointer path does not resolve at the moment, or a place the cheat reads cannot be read; the cheat waits |
+| `done` | A cheat that runs once or for a time did its work and switched itself off; it is off (section 11.5) |
 | `capability-missing:<capability>` | Section 11.1 |
 | `extension-missing:<extension>` | Section 10 |
 | `unknown-key:<key>` | Section 10 |

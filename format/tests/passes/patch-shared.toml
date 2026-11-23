@@ -1,0 +1,89 @@
+about = """Two cheats that patch the same place. The original bytes are kept the first time a place changes and put back \
+only when no cheat that is on covers the place any more. Where patches overlap, the later cheat in file order wins, \
+and a patch is written whole when one of its bytes has to change (sections 11.3 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "a"
+name = "a"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "b"
+name = "b"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "c"
+name = "c"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x102 }
+  expect = "00 B9 10 00"
+  bytes = "AA BB CC DD"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x100, hex = "68 12 00 B9 10 00 00 94" } ]
+
+[[step]]
+on = ["a"]
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" } ]
+
+[[step]]
+about = "b writes the bytes that are there already: no change."
+on = ["b"]
+
+[[step]]
+about = "a is off, but b still writes the place: it stays patched."
+off = ["a"]
+  [step.expect]
+  cheat.a = { state = "off", reason = "" }
+  cheat.b = { state = "on", reason = "" }
+
+[[step]]
+off = ["b"]
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000100, bytes = "68 12 00 B9" } ]
+
+[[step]]
+about = "c overlaps the end of a and wins there; the two patches touch, so they are one run."
+on = ["a", "c"]
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000100, bytes = "69 12 AA BB CC DD" } ]
+
+[[step]]
+about = "Without c, a gets its own bytes back where c covered it, and the rest of c's place is restored."
+off = ["c"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" },
+    { kind = "restore", address = 0x8000104, bytes = "10 00" },
+  ]
+
+[[step]]
+stop = true
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000100, bytes = "68 12 00 B9" } ]
+  cheat.a = { state = "off", reason = "" }

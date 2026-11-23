@@ -1,0 +1,95 @@
+about = """A value the player sets between passes is used from the next pass on. A patch whose instruction holds the \
+value (`arm64-imm/1`) is written again, whole. A value that does not fit refuses the cheat with `value-out-of-range` \
+and puts back what it patched; a value that fits again makes it usable again, switched off (sections 7.6, 10.2 and \
+11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "money"
+name = "money"
+default = true
+  [cheat.values.count]
+  type = "u32"
+  min = 0
+  max = 1000
+  default = 100
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = "$count"
+
+[[cheat]]
+id = "imm"
+name = "imm"
+default = true
+  [cheat.values.n]
+  type = "u16"
+  default = 5
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$n" }
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [ { at = 0x300, hex = "08 00 80 52" } ]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[step]]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000300, bytes = "A8 00 80 52" },
+    { kind = "write", cheat = "money", address = 0x10000010, bytes = "64 00 00 00" },
+  ]
+
+[[step]]
+values = { "money.count" = 500, "imm.n" = 0x1234 }
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000300, bytes = "88 46 82 52" },
+    { kind = "write", cheat = "money", address = 0x10000010, bytes = "F4 01 00 00" },
+  ]
+
+[[step]]
+values = { "money.count" = 5000 }
+  [step.expect]
+  cheat.money = { state = "refused", reason = "value-out-of-range" }
+  cheat.imm = { state = "on", reason = "" }
+
+[[step]]
+values = { "money.count" = 7 }
+  [step.expect]
+  cheat.money = { state = "off", reason = "" }
+
+[[step]]
+on = ["money"]
+  [step.expect]
+  changes = [ { kind = "write", cheat = "money", address = 0x10000010, bytes = "07 00 00 00" } ]
+
+[[step]]
+values = { "imm.n" = 70000 }
+  [step.expect]
+  changes = [
+    { kind = "restore", address = 0x8000300, bytes = "08 00 80 52" },
+    { kind = "write", cheat = "money", address = 0x10000010, bytes = "07 00 00 00" },
+  ]
+  cheat.imm = { state = "refused", reason = "value-out-of-range" }

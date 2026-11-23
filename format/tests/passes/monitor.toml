@@ -1,0 +1,79 @@
+about = """A monitor that is on reads its values in every pass in which it works, and the pass gives them by cheat, \
+in the order of its `read` operations, as numbers of their types. A monitor behind a pointer path that does not \
+resolve waits (sections 7.7 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "hp"
+name = "hp"
+default = true
+run = "monitor"
+  [[cheat.read]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  label = "HP"
+  [[cheat.read]]
+  at = { region = "heap", offset = 0x14 }
+  type = "f32"
+  [[cheat.read]]
+  at = { region = "heap", offset = 0x18 }
+  type = "s8"
+  label = "Mood"
+
+[[cheat]]
+id = "deep"
+name = "deep"
+default = true
+run = "monitor"
+  [[cheat.read]]
+  at = { region = "heap", offset = 0x100, path = [0x0] }
+  type = "u32"
+  label = "Deep"
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[[env.memory]]
+at = 0x10000010
+hex = "2A 00 00 00 00 00 C0 3F FE"
+
+[[step]]
+  [step.expect]
+  shown.hp = [
+    { label = "HP", type = "u16", value = 42 },
+    { type = "f32", value = 1.5 },
+    { label = "Mood", type = "s8", value = -2 },
+  ]
+  cheat.hp = { state = "on", reason = "" }
+  cheat.deep = { state = "waiting", reason = "path-broken" }
+
+[[step]]
+memory = [
+  { at = 0x10000010, hex = "07 00" },
+  { at = 0x10000100, hex = "00 02 00 10 00 00 00 00" },
+  { at = 0x10000200, hex = "40 E2 01 00" },
+]
+  [step.expect]
+  shown.hp = [
+    { label = "HP", value = 7 },
+    { value = 1.5 },
+    { value = -2 },
+  ]
+  shown.deep = [ { label = "Deep", type = "u32", value = 123456 } ]
+  cheat.deep = { state = "on", reason = "" }
+
+[[step]]
+off = ["hp"]
+  [step.expect]
+  shown.deep = [ { value = 123456 } ]

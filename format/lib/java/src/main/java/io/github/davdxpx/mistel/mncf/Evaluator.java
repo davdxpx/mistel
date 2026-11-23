@@ -34,23 +34,19 @@ public final class Evaluator {
         }
     }
 
-    /** A pointer path cannot be followed yet. */
-    private static final class Waiting extends Exception {
-        private static final long serialVersionUID = 1L;
-
-        Waiting() {
-            super(null, null, false, false);
-        }
-    }
-
-    /** The result of one cheat while the evaluation decides its state. */
-    private static final class Result {
+    /**
+     * The result of one cheat while the evaluation decides its state. A cheat whose own
+     * operations apply also has its planned operations; one that uses raw code, its entry.
+     */
+    static final class Result {
         final String id;
         String state;
         String reason;
         final String uses;
         final List<ResolvedOp> ops;
         boolean pathBroken;
+        List<Plan> plans;
+        Model.Raw rawEntry;
 
         Result(String id, String state, String reason, String uses, List<ResolvedOp> ops) {
             this.id = id;
@@ -62,7 +58,7 @@ public final class Evaluator {
     }
 
     /** A resolved place: its address and, for a place given in a module, the module and offset. */
-    private static final class Place {
+    static final class Place {
         final long address;
         final String module;
         final Long offset;
@@ -76,7 +72,7 @@ public final class Evaluator {
         }
     }
 
-    private static final class SearchKey {
+    static final class SearchKey {
         final Module module;
         final int[] items;
         final String section;
@@ -104,6 +100,11 @@ public final class Evaluator {
 
     private static Result refused(String id, String reason) {
         return new Result(id, CheatResult.REFUSED, reason, "", Collections.<ResolvedOp>emptyList());
+    }
+
+    /** A cheat's own result when it is refused for the reason given. */
+    static Result refusedResult(String id, String reason) {
+        return refused(id, reason);
     }
 
     /** Returns the key of the build that runs, or null (section 5). */
@@ -134,30 +135,55 @@ public final class Evaluator {
 
     /** Returns the build that runs and every cheat's state, reason and resolved operations. */
     public static Evaluation evaluate(MncfFile f, Runtime rt, Choices choices) {
-        if (choices == null) {
-            choices = Choices.none();
+        return load(f, rt, choices == null ? Choices.none() : choices, new HashMap<SearchKey, List<Long>>())
+                .evaluation;
+    }
+
+    /** What loading a file gives: the evaluation, the cheats that are on, and each cheat's own result. */
+    static final class Loaded {
+        final Evaluation evaluation;
+        final List<String> on;
+        final Map<String, Result> own;
+
+        Loaded(Evaluation evaluation, List<String> on, Map<String, Result> own) {
+            this.evaluation = evaluation;
+            this.on = on;
+            this.own = own;
         }
+    }
+
+    /**
+     * Evaluates a file, and keeps the cheats that are on and each cheat's own result before its
+     * relations to other cheats were looked at.
+     */
+    static Loaded load(MncfFile f, Runtime rt, Choices choices, Map<SearchKey, List<Long>> cache) {
         String build = identify(f, rt);
-        String arch = rt.arch() != null && !rt.arch().isEmpty() ? rt.arch() : f.platform().archs().get(0);
-        Map<String, Result> results = new LinkedHashMap<>();
-        String fileReason = fileReason(f, rt);
+        Map<String, Result> own = new LinkedHashMap<>();
         for (Cheat c : f.cheats()) {
-            if (fileReason != null) {
-                results.put(c.id(), refused(c.id(), fileReason));
-            } else if (c.problem() != null) {
-                results.put(c.id(), refused(c.id(), c.problem()));
-            } else {
-                results.put(c.id(), cheat(f, c, rt, build, arch, choices));
-            }
+            own.put(c.id(), ownResult(f, c, rt, build, choices, cache));
         }
-        relations(f, results);
-        switchOn(f, results, choices, rt);
+        Map<String, Result> results = relations(f, own);
+        List<String> on = switchStates(f, results, choices, rt);
         List<CheatResult> out = new ArrayList<>();
         for (Cheat c : f.cheats()) {
             Result r = results.get(c.id());
             out.add(new CheatResult(r.id, r.state, r.reason, r.uses, r.ops));
         }
-        return new Evaluation(build, out);
+        return new Loaded(new Evaluation(build, out), on, own);
+    }
+
+    /** A cheat's own result for the choices: refused with a reason, or its planned operations or raw entry. */
+    static Result ownResult(MncfFile f, Cheat c, Runtime rt, String build, Choices choices,
+            Map<SearchKey, List<Long>> cache) {
+        String fileReason = fileReason(f, rt);
+        if (fileReason != null) {
+            return refused(c.id(), fileReason);
+        }
+        if (c.problem() != null) {
+            return refused(c.id(), c.problem());
+        }
+        String arch = rt.arch() != null && !rt.arch().isEmpty() ? rt.arch() : f.platform().archs().get(0);
+        return cheat(f, c, rt, build, arch, choices, cache);
     }
 
     private static String fileReason(MncfFile f, Runtime rt) {
@@ -182,7 +208,8 @@ public final class Evaluator {
         return rt.capabilities().contains("code-bytes") && op.expect != null && Encode.hasStub(arch);
     }
 
-    private static Result cheat(MncfFile f, Cheat c, Runtime rt, String build, String arch, Choices choices) {
+    private static Result cheat(MncfFile f, Cheat c, Runtime rt, String build, String arch, Choices choices,
+            Map<SearchKey, List<Long>> cache) {
         List<String> buttonCaps = c.hold() != null || c.toggle() != null || c.press() != null
                 ? Collections.singletonList("buttons") : Collections.<String>emptyList();
         List<String> caps = new ArrayList<>();
@@ -245,7 +272,7 @@ public final class Evaluator {
         }
         if (!c.coreOps().isEmpty()) {
             if (missing.isEmpty() && missingExt.isEmpty()) {
-                return core(f, c, rt, build, arch, choices);
+                return core(f, c, rt, build, arch, choices, cache);
             }
             if (entry != null && buttonsMissing.isEmpty()) {
                 return raw(c, entry);
@@ -270,7 +297,9 @@ public final class Evaluator {
         op.syntax = r.syntax;
         op.build = r.build;
         op.code = r.code;
-        return new Result(c.id(), CheatResult.OFF, "", "raw", Collections.singletonList(op.done()));
+        Result result = new Result(c.id(), CheatResult.OFF, "", "raw", Collections.singletonList(op.done()));
+        result.rawEntry = r;
+        return result;
     }
 
     /**
@@ -299,33 +328,140 @@ public final class Evaluator {
         return v;
     }
 
-    private static Result core(MncfFile f, Cheat c, Runtime rt, String build, String arch, Choices choices) {
+    /**
+     * Resolves a cheat's operations for the runtime as it is now: plans them, then follows their
+     * pointer paths with the runtime's guest memory.
+     */
+    private static Result core(MncfFile f, Cheat c, Runtime rt, String build, String arch, Choices choices,
+            Map<SearchKey, List<Long>> cache) {
         List<ResolvedOp> ops = new ArrayList<>();
+        List<Plan> plans = new ArrayList<>();
         boolean waiting = false;
-        Map<SearchKey, List<Long>> cache = new HashMap<>();
+        GuestMemory memory = runtimeMemory(rt);
         try {
+            int index = 0;
             for (Model.Op op : c.ops()) {
-                try {
-                    ops.add(op(f, c, op, rt, build, arch, choices, cache));
-                } catch (Waiting w) {
+                Plan p = plan(f, c, index++, op, rt, build, arch, choices, cache);
+                plans.add(p);
+                List<Place> places = followAll(f.platform(), p, memory);
+                if (places == null) {
                     waiting = true;
-                    ops.add(new ResolvedOp.Builder(op.kind()).done());
+                    ops.add(new ResolvedOp.Builder(p.kind).done());
+                    continue;
                 }
+                if (p.pathExpect) {
+                    checkExpect(rt, places.get(0), p.expect, p.kind.equals("patch") ? p.data : null);
+                }
+                ops.add(p.resolved(places));
             }
         } catch (Refused r) {
             return refused(c.id(), r.reason);
         }
         Result result = new Result(c.id(), CheatResult.OFF, "", "core", ops);
         result.pathBroken = waiting;
+        result.plans = Collections.unmodifiableList(plans);
         return result;
     }
 
-    private static ResolvedOp op(MncfFile f, Cheat c, Model.Op op, Runtime rt, String build, String arch,
-            Choices choices, Map<SearchKey, List<Long>> cache) throws Refused, Waiting {
+    /** The runtime's reads as a {@link GuestMemory}. */
+    static GuestMemory runtimeMemory(final Runtime rt) {
+        return new GuestMemory() {
+            @Override
+            public byte[] read(long address, int size) {
+                return rt.read(address, size);
+            }
+        };
+    }
+
+    /**
+     * A place an operation acts on before its pointer path is followed: the place of its base,
+     * the path, and how many bytes the operation reads or writes there.
+     */
+    static final class Target {
+        final Place base;
+        final long[] path;
+        final int size;
+
+        Target(Place base, long[] path, int size) {
+            this.base = base;
+            this.path = path;
+            this.size = size;
+        }
+
+        boolean hasPath() {
+            return path != null && path.length > 0;
+        }
+    }
+
+    /**
+     * One operation of a cheat, resolved as far as it can be without reading guest memory that
+     * changes. The targets are the operation's place and, for a condition that compares with
+     * another place, that place too. The data is what a patch, a write or an override stub
+     * writes; an override that the runtime hooks has none. A condition's value is a number, a
+     * Boolean, a Between, or the Target of the other place.
+     */
+    static final class Plan {
+        final String kind;
+        final int index;
+        final Model.Op op;
+        final List<Target> targets;
+        byte[] data;
+        byte[] expect;
+        String type;
+        String action;
+        Object value;
+        String label;
+        boolean pathExpect;
+
+        Plan(String kind, int index, Model.Op op, List<Target> targets) {
+            this.kind = kind;
+            this.index = index;
+            this.op = op;
+            this.targets = targets;
+        }
+
+        ResolvedOp resolved(List<Place> places) {
+            Place p = places.get(0);
+            ResolvedOp.Builder out = new ResolvedOp.Builder(kind).place(p.address, p.module, p.offset);
+            if (kind.equals("patch")) {
+                out.expect = expect;
+                out.bytes = data;
+            } else if (kind.equals("write")) {
+                out.type = type;
+                out.expect = expect;
+                out.bytes = data;
+            } else if (kind.equals("override")) {
+                out.action = action;
+                out.value = value;
+                out.expect = expect;
+                out.bytes = data;
+            } else if (kind.equals("read")) {
+                out.type = type;
+                out.label = label;
+            } else {
+                Object v = value;
+                if (v instanceof Target) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("address", Values.unsigned(places.get(1).address));
+                    m.put("type", ((Model.Place) ((Model.Condition) op).value).type);
+                    v = Collections.unmodifiableMap(m);
+                } else if (v instanceof Model.Between) {
+                    v = ResolvedOp.pair(((Model.Between) v).low, ((Model.Between) v).high);
+                }
+                out.type = type;
+                out.op = ((Model.Condition) op).op;
+                out.value = v;
+            }
+            return out.done();
+        }
+    }
+
+    private static Plan plan(MncfFile f, Cheat c, int index, Model.Op op, Runtime rt, String build, String arch,
+            Choices choices, Map<SearchKey, List<Long>> cache) throws Refused {
         boolean big = f.platform().bigEndian();
         if (op instanceof Model.Patch) {
             Model.Patch p = (Model.Patch) op;
-            Place place = resolve(f, p.at, rt, build, p.expect.length, cache);
+            Target target = target(f, p.at, rt, build, p.expect.length, cache);
             byte[] data;
             if (p.encode != null) {
                 Model.Encoding e = p.encode;
@@ -337,17 +473,20 @@ public final class Evaluator {
             } else {
                 data = p.bytes;
             }
-            checkExpect(rt, place, p.expect, data);
-            ResolvedOp.Builder out = new ResolvedOp.Builder("patch").place(place.address, place.module, place.offset);
+            if (!target.hasPath()) {
+                checkExpect(rt, target.base, p.expect, data);
+            }
+            Plan out = new Plan("patch", index, op, Collections.singletonList(target));
+            out.data = data;
             out.expect = p.expect;
-            out.bytes = data;
-            return out.done();
+            out.pathExpect = target.hasPath();
+            return out;
         }
         if (op instanceof Model.Write) {
             Model.Write w = (Model.Write) op;
             boolean isBytes = w.type.equals("bytes");
             int size = isBytes ? ((byte[]) w.value).length : Values.typeSize(w.type);
-            Place place = resolve(f, w.at, rt, build, size, cache);
+            Target target = target(f, w.at, rt, build, size, cache);
             byte[] data;
             byte[] expect;
             if (isBytes) {
@@ -367,11 +506,11 @@ public final class Evaluator {
                 data = Values.encode(w.type, v, big);
                 expect = w.expect != null ? Values.encode(w.type, w.expect, big) : null;
             }
-            ResolvedOp.Builder out = new ResolvedOp.Builder("write").place(place.address, place.module, place.offset);
-            out.type = w.type;
+            Plan out = new Plan("write", index, op, Collections.singletonList(target));
+            out.data = data;
             out.expect = expect;
-            out.bytes = data;
-            return out.done();
+            out.type = w.type;
+            return out;
         }
         if (op instanceof Model.Override) {
             Model.Override o = (Model.Override) op;
@@ -382,48 +521,47 @@ public final class Evaluator {
             boolean patches = byBytes(o, rt, arch);
             byte[] stub = patches ? Encode.stub(arch, o.action, v == null ? 0 : Values.bits(v)) : null;
             int size = o.expect != null ? o.expect.length : 4;
-            Place place = resolve(f, o.function, rt, build, size, cache);
+            Target target = target(f, o.function, rt, build, size, cache);
             if (patches) {
                 if (stub.length > o.expect.length) {
                     throw new Refused(o.value instanceof Model.ValueRef ? "value-out-of-range" : "invalid:override.expect");
                 }
-                checkExpect(rt, place, o.expect, null);
+                if (!target.hasPath()) {
+                    checkExpect(rt, target.base, o.expect, null);
+                }
             }
-            ResolvedOp.Builder out = new ResolvedOp.Builder("override").place(place.address, place.module, place.offset);
+            Plan out = new Plan("override", index, op, Collections.singletonList(target));
+            out.data = stub;
+            out.expect = o.expect;
             out.action = o.action;
             out.value = v;
-            out.expect = o.expect;
-            out.bytes = stub;
-            return out.done();
+            out.pathExpect = patches && target.hasPath();
+            return out;
         }
         if (op instanceof Model.Read) {
             Model.Read r = (Model.Read) op;
-            Place place = resolve(f, r.at, rt, build, Values.typeSize(r.type), cache);
-            ResolvedOp.Builder out = new ResolvedOp.Builder("read").place(place.address, place.module, place.offset);
+            Target target = target(f, r.at, rt, build, Values.typeSize(r.type), cache);
+            Plan out = new Plan("read", index, op, Collections.singletonList(target));
             out.type = r.type;
             out.label = r.label;
-            return out.done();
+            return out;
         }
         Model.Condition cond = (Model.Condition) op;
-        Place place = resolve(f, cond.at, rt, build, Values.typeSize(cond.type), cache);
+        List<Target> targets = new ArrayList<>();
+        targets.add(target(f, cond.at, rt, build, Values.typeSize(cond.type), cache));
         Object v = cond.value;
         if (v instanceof Model.ValueRef) {
             v = value(c, (Model.ValueRef) v, choices);
         } else if (v instanceof Model.Place) {
             Model.Place p = (Model.Place) v;
-            Place other = resolve(f, p.at, rt, build, Values.typeSize(p.type), cache);
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("address", Values.unsigned(other.address));
-            m.put("type", p.type);
-            v = Collections.unmodifiableMap(m);
-        } else if (v instanceof Model.Between) {
-            v = ResolvedOp.pair(((Model.Between) v).low, ((Model.Between) v).high);
+            Target other = target(f, p.at, rt, build, Values.typeSize(p.type), cache);
+            targets.add(other);
+            v = other;
         }
-        ResolvedOp.Builder out = new ResolvedOp.Builder("when").place(place.address, place.module, place.offset);
+        Plan out = new Plan("when", index, op, Collections.unmodifiableList(targets));
         out.type = cond.type;
-        out.op = cond.op;
         out.value = v;
-        return out.done();
+        return out;
     }
 
     /** A value as a whole number, as Python's int() makes one: a float loses its fraction. */
@@ -446,8 +584,9 @@ public final class Evaluator {
         return Long.compareUnsigned(offset, length) <= 0 && Long.compareUnsigned(length - offset, need) >= 0;
     }
 
-    private static Place resolve(MncfFile f, Model.Location loc, Runtime rt, String build, int size,
-            Map<SearchKey, List<Long>> cache) throws Refused, Waiting {
+    /** The place of a location's base (section 6.2), checked, and the pointer path that follows it. */
+    private static Target target(MncfFile f, Model.Location loc, Runtime rt, String build, int size,
+            Map<SearchKey, List<Long>> cache) throws Refused {
         Platform plat = f.platform();
         int pointer = plat.pointerSize();
         int need = loc.hasPath() ? pointer : size;
@@ -499,22 +638,45 @@ public final class Evaluator {
             }
             place = new Place(r[0] + off, null, null, null);
         }
-        if (!loc.hasPath()) {
-            return place;
+        return new Target(place, loc.hasPath() ? loc.path : null, size);
+    }
+
+    /**
+     * The place a target names now: its base, or where its pointer path leads. Null where the
+     * path does not resolve at the moment: a null pointer, or a pointer or the place outside
+     * guest memory.
+     */
+    static Place follow(Platform plat, Target target, GuestMemory memory) {
+        if (!target.hasPath()) {
+            return target.base;
         }
-        long address = place.address;
+        int pointer = plat.pointerSize();
+        long address = target.base.address;
         long mask = pointer >= 8 ? -1L : (1L << (8 * pointer)) - 1;
-        for (long step : loc.path) {
-            byte[] raw = rt.read(address, pointer);
+        for (long step : target.path) {
+            byte[] raw = memory.read(address, pointer);
             if (raw == null || isZero(raw)) {
-                throw new Waiting();
+                return null;
             }
             address = (number(raw, plat.bigEndian()) + step) & mask;
         }
-        if (rt.read(address, size) == null) {
-            throw new Waiting();
+        if (memory.read(address, target.size) == null) {
+            return null;
         }
         return new Place(address, null, null, null);
+    }
+
+    /** The places of every target of a planned operation, or null if one of them does not resolve now. */
+    static List<Place> followAll(Platform plat, Plan plan, GuestMemory memory) {
+        List<Place> places = new ArrayList<>();
+        for (Target t : plan.targets) {
+            Place p = follow(plat, t, memory);
+            if (p == null) {
+                return null;
+            }
+            places.add(p);
+        }
+        return places;
     }
 
     private static boolean isZero(byte[] raw) {
@@ -702,7 +864,14 @@ public final class Evaluator {
         return out;
     }
 
-    private static void relations(MncfFile f, Map<String, Result> results) {
+    /** The results after the relations between cheats (section 7.8), from each cheat's own result. */
+    static Map<String, Result> relations(MncfFile f, Map<String, Result> own) {
+        Map<String, Result> results = new LinkedHashMap<>(own);
+        relate(f, results);
+        return results;
+    }
+
+    private static void relate(MncfFile f, Map<String, Result> results) {
         boolean changed = true;
         while (changed) {
             changed = false;
@@ -762,36 +931,82 @@ public final class Evaluator {
                 || (ca.radio() != null && ca.radio().equals(cb.radio())));
     }
 
-    private static void switchOn(MncfFile f, Map<String, Result> results, Choices choices, Runtime rt) {
-        List<String> wanted = new ArrayList<>();
+    /**
+     * Switches on the cheats that are on when the file is loaded (section 11.2) and gives every
+     * cheat its state. Returns the cheats that are on.
+     */
+    private static List<String> switchStates(MncfFile f, Map<String, Result> results, Choices choices, Runtime rt) {
+        List<String> on = new ArrayList<>();
         for (Cheat c : f.cheats()) {
-            if (!c.isMaster() && ((c.isDefault() && !choices.off().contains(c.id())) || choices.on().contains(c.id()))) {
-                wanted.add(c.id());
+            if (!c.isMaster() && ((c.isDefault() && !choices.off().contains(c.id())) || choices.on().contains(c.id()))
+                    && !results.get(c.id()).state.equals(CheatResult.REFUSED)) {
+                on = switchOn(f, on, c.id());
             }
         }
-        List<String> on = new ArrayList<>();
-        for (String x : wanted) {
-            if (results.get(x).state.equals(CheatResult.REFUSED)) {
+        for (Cheat c : f.cheats()) {
+            Result r = results.get(c.id());
+            if (r.state.equals(CheatResult.REFUSED)) {
                 continue;
             }
-            List<String> group = closure(f, x);
-            List<String> kept = new ArrayList<>();
-            for (String y : on) {
-                boolean clash = false;
-                for (String g : group) {
-                    clash |= conflicts(f, y, g);
-                }
-                if (!clash) {
-                    kept.add(y);
-                }
-            }
-            on = dropUnmet(f, kept);
-            for (String g : group) {
-                if (!on.contains(g)) {
-                    on.add(g);
-                }
+            if (!on.contains(c.id())) {
+                r.state = CheatResult.OFF;
+            } else if (r.pathBroken) {
+                r.state = CheatResult.WAITING;
+                r.reason = "path-broken";
+            } else if (r.uses.equals("core") && waitsForButtons(c, rt.held(), false)) {
+                r.state = CheatResult.WAITING;
+            } else {
+                r.state = CheatResult.ON;
             }
         }
+        return on;
+    }
+
+    /** Whether a cheat that is on waits for buttons: held buttons it needs, or the first press of an action. */
+    static boolean waitsForButtons(Cheat c, java.util.Collection<String> held, boolean pressedOnce) {
+        if (c.hold() != null && !held.containsAll(Py.split(c.hold(), '+'))) {
+            return true;
+        }
+        return c.run().equals("action") && !pressedOnce;
+    }
+
+    /**
+     * The cheats that are on after x is switched on (section 7.8): x and the cheats it requires
+     * are on, and every cheat that conflicts with one of them is off, with the cheats that
+     * require it.
+     */
+    static List<String> switchOn(MncfFile f, List<String> on, String x) {
+        List<String> group = closure(f, x);
+        List<String> kept = new ArrayList<>();
+        for (String y : on) {
+            boolean clash = false;
+            for (String g : group) {
+                clash |= conflicts(f, y, g);
+            }
+            if (!clash) {
+                kept.add(y);
+            }
+        }
+        List<String> out = new ArrayList<>(dropUnmet(f, kept));
+        for (String g : group) {
+            if (!out.contains(g)) {
+                out.add(g);
+            }
+        }
+        return dropMasters(f, out);
+    }
+
+    /**
+     * The cheats that are on after x is switched off: without x, the cheats that require it, and
+     * the master cheats that nothing on needs any more.
+     */
+    static List<String> switchOff(MncfFile f, List<String> on, String x) {
+        List<String> kept = new ArrayList<>(on);
+        kept.remove(x);
+        return dropMasters(f, dropUnmet(f, kept));
+    }
+
+    private static List<String> dropMasters(MncfFile f, List<String> on) {
         Set<String> needed = new HashSet<>();
         for (String y : on) {
             if (!f.cheat(y).isMaster()) {
@@ -804,23 +1019,7 @@ public final class Evaluator {
                 kept.add(y);
             }
         }
-        on = kept;
-        for (Cheat c : f.cheats()) {
-            Result r = results.get(c.id());
-            if (r.state.equals(CheatResult.REFUSED)) {
-                continue;
-            }
-            if (!on.contains(c.id())) {
-                r.state = CheatResult.OFF;
-            } else if (r.pathBroken) {
-                r.state = CheatResult.WAITING;
-                r.reason = "path-broken";
-            } else if (c.hold() != null && !rt.held().containsAll(Py.split(c.hold(), '+'))) {
-                r.state = CheatResult.WAITING;
-            } else {
-                r.state = CheatResult.ON;
-            }
-        }
+        return kept;
     }
 
     private static List<String> dropUnmet(MncfFile f, List<String> on) {

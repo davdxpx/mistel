@@ -31,12 +31,12 @@ final class Schema {
     private static final List<String> SECTIONS = Values.list("code", "rodata", "data");
     private static final List<String> ACTIONS = Values.list("return", "skip");
     private static final List<String> OP_KEYS = Values.list("patch", "write", "override", "read", "when", "raw");
-    private static final List<String> OVERRIDE_VALUE_TYPES;
+    private static final List<String> WHOLE_VALUE_TYPES;
 
     static {
         List<String> types = new ArrayList<>(Values.INT_TYPES);
         types.add("bool");
-        OVERRIDE_VALUE_TYPES = Collections.unmodifiableList(types);
+        WHOLE_VALUE_TYPES = Collections.unmodifiableList(types);
     }
 
     /** A node of the key tree of a cheat, for finding keys the spec does not define. */
@@ -671,16 +671,21 @@ final class Schema {
         c.ops = ops;
         boolean reads = false;
         boolean changes = false;
+        boolean code = false;
         boolean core = false;
         for (Model.Op op : ops) {
             reads |= op instanceof Model.Read;
             changes |= op instanceof Model.Patch || op instanceof Model.Write || op instanceof Model.Override;
+            code |= op instanceof Model.Patch || op instanceof Model.Override;
             core |= !(op instanceof Model.Condition);
         }
         if (c.run.equals("monitor")) {
             if (changes || !reads) {
                 throw invalid("run");
             }
+        } else if (c.run.equals("once") && code) {
+            // A cheat that runs once is off right after its pass; code works only while a cheat is on.
+            throw invalid("run");
         } else if (reads) {
             throw invalid("read");
         }
@@ -1121,7 +1126,7 @@ final class Schema {
             if (!t.containsKey("value")) {
                 throw invalid("override.value");
             }
-            Model.ValueRef ref = ref(t.get("value"), c, "override.value", OVERRIDE_VALUE_TYPES);
+            Model.ValueRef ref = ref(t.get("value"), c, "override.value", WHOLE_VALUE_TYPES);
             Number n = ref == null ? Values.integer(t.get("value")) : null;
             if (ref == null && (n == null || !Values.inLongOrU64(Values.big(n)))) {
                 throw invalid("override.value");
@@ -1203,18 +1208,23 @@ final class Schema {
                 throw invalid("when.value.at");
             }
             Model.Location placeAt = location(other.get("at"), "when.value.at", ctx);
-            if (!Values.NUMBER_TYPES.contains(otherType)) {
+            if (!Values.NUMBER_TYPES.contains(otherType) || (bits(cond.op) && !Values.isIntType(otherType))) {
                 throw invalid("when.value.type");
             }
             cond.value = new Model.Place(placeAt, (String) otherType);
             return cond;
         }
-        Model.ValueRef ref = ref(v, c, "when.value", Values.VALUE_TYPES);
+        Model.ValueRef ref = ref(v, c, "when.value", bits(cond.op) ? WHOLE_VALUE_TYPES : Values.VALUE_TYPES);
         cond.value = ref != null ? ref : valueNumber(cond.type, v);
         if (cond.value == null) {
             throw invalid("when.value");
         }
         return cond;
+    }
+
+    /** Whether a condition's operator tests bits, so that what it compares with is a whole number. */
+    private static boolean bits(String op) {
+        return op.equals("&") || op.equals("!&");
     }
 
     private static Model.Raw raw(Map<String, Object> t, Context ctx) throws Problem {

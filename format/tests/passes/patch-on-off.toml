@@ -1,0 +1,86 @@
+about = """A patch is written in the pass after its cheat is switched on and stays without another change while the \
+cheat is on. Switching it off puts the original bytes back in the next pass. A cheat that stays as it is costs no \
+change (sections 7.2, 11.3 and 11.5)."""
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[[cheat]]
+id = "money"
+name = "money"
+default = true
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "jump"
+name = "jump"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "00 10 2E 1E 01 10 2E 1E"
+  bytes = "00 10 20 1E 01 10 20 1E"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 10 00 00 94" },
+  { at = 0x200, hex = "00 10 2E 1E 01 10 2E 1E" },
+]
+
+[expect]
+cheat.money = { state = "on", reason = "" }
+cheat.jump = { state = "off", reason = "" }
+
+[[step]]
+about = "The first pass writes the patch of the cheat that is on at load."
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" } ]
+  cheat.money = { state = "on", reason = "" }
+
+[[step]]
+about = "Nothing changed: no change."
+
+[[step]]
+on = ["jump"]
+  [step.expect]
+  changes = [ { kind = "patch", address = 0x8000200, bytes = "00 10 20 1E 01 10 20 1E" } ]
+  cheat.jump = { state = "on", reason = "" }
+
+[[step]]
+off = ["money"]
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000100, bytes = "68 12 00 B9" } ]
+  cheat.money = { state = "off", reason = "" }
+
+[[step]]
+on = ["money"]
+off = ["jump"]
+  [step.expect]
+  changes = [
+    { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" },
+    { kind = "restore", address = 0x8000200, bytes = "00 10 2E 1E 01 10 2E 1E" },
+  ]
+
+[[step]]
+stop = true
+  [step.expect]
+  changes = [ { kind = "restore", address = 0x8000100, bytes = "68 12 00 B9" } ]
+  cheat.money = { state = "off", reason = "" }
