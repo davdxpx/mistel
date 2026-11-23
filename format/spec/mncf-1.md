@@ -69,7 +69,7 @@ The cheat finds its place by a byte pattern, so it works on both builds and on a
 | `about` | string | no | A description of the file, credits |
 | `file_version` | string | no | The authors' own version of this file, so a runtime can say that a newer one was imported |
 | `language` | string | no | The language of the file's plain strings, a BCP 47 tag. Default `"en"` |
-| `extensions` | table | no | `required` and `optional`, arrays of extension names with their version (`"conditions/1"`), section 10 |
+| `extensions` | table | no | `required` and `optional`, arrays of extension names with their version (`"arm64-imm/1"`), section 10 |
 | `game` | table | yes | Section 5 |
 | `builds` | table | no | Section 5 |
 | `cheat` | array of tables | yes | Section 7 |
@@ -303,6 +303,41 @@ Tags tell a runtime and a player what to expect. Unknown tags are shown as they 
 | `cosmetic` | The cheat changes only what is shown |
 | `online_unsafe` | The cheat must not be used online |
 
+### 7.9 Conditions
+
+Conditions make a cheat act only when the game is in a certain state: heal when health is low, refill only in a menu, freeze a timer only in a race.
+
+```toml
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x1300 }
+  type = "u16"
+  op = "<"
+  value = 10
+```
+
+| Key | Meaning |
+|---|---|
+| `at`, `type` | The value to test, read as a write's place is (section 7.4) |
+| `op` | `==`, `!=`, `<`, `<=`, `>`, `>=`; `&` (the two share a set bit), `!&` (they share none); `between` (`value` is `[low, high]`, both included); `changed` (differs from the last pass; no `value`) |
+| `value` | A number, a player value (`"$limit"`), or another place to compare with: `{ at = { ... }, type = "u16" }` |
+
+Keys on the cheat:
+
+| Key | Meaning |
+|---|---|
+| `match` | `"all"` (default): every condition must hold. `"any"`: one is enough |
+| `trigger` | `"while"` (default): the cheat acts in every pass in which the conditions hold. `"enter"`: it acts once each time the conditions start to hold, that is, they did not hold in the pass before |
+| `interval` | Test the conditions every this many passes instead of every pass. Default 1 |
+
+Conditions gate everything a cheat does. Writes happen only while they hold. Patches and overrides are applied while they hold and restored when they stop holding; the runtime changes code only when the result flips, never in a pass where it stays the same.
+
+So that conditions cost next to nothing, a runtime SHOULD:
+
+- read each place at most once per pass, even when several conditions or cheats read it, and resolve each pointer path at most once per pass;
+- stop testing a cheat's conditions as soon as the result is known;
+- test all conditions before it stops any of the game's threads, and stop them only to change code;
+- with `interval`, do nothing for that cheat in the passes in between.
+
 ## 8. Presets
 
 A preset switches several cheats on at once, with values.
@@ -335,10 +370,10 @@ about = "Beim Einkaufen bleibt dein Geld, wo es ist."
 
 ## 10. Extensions
 
-Everything beyond the core is an extension, named with its version: `conditions/1`.
+Everything beyond the core is an extension, named with its version: `arm64-imm/1`.
 
 ```toml
-extensions = { required = ["conditions/1"], optional = ["arm64-imm/1"] }
+extensions = { optional = ["arm64-imm/1"] }
 ```
 
 - A file lists every extension it uses. `required`: the file's author does not want the file used without it. `optional`: the file works without it, with the cheats that use it off.
@@ -361,19 +396,7 @@ Keeps a cheat in the code of the format it came from, so a converter never loses
 
 Defined syntaxes: `atmosphere` (the Atmosphère dmnt cheat code of the Switch). A cheat MAY have both `raw` entries and core operations; a runtime that can run the core operations SHOULD use them and ignore `raw`.
 
-### 10.2 `conditions/1`: writes that depend on the game's state
-
-```toml
-  [[cheat.when]]
-  at = { region = "heap", offset = 0x1300 }
-  type = "u16"
-  op = "<"
-  value = 10
-```
-
-A cheat's writes happen only in a pass where every `when` holds. `op` is one of `==`, `!=`, `<`, `<=`, `>`, `>=`, and `&` (true when the value and `value` share a set bit).
-
-### 10.3 `arm64-imm/1`: a player value inside an ARM64 instruction
+### 10.2 `arm64-imm/1`: a player value inside an ARM64 instruction
 
 Lets a patch write an instruction whose immediate is a player value, so that a code cheat gets a number field.
 
@@ -392,6 +415,7 @@ Lets a patch write an instruction whose immediate is a player value, so that a c
 
 | Capability | Needed by |
 |---|---|
+| `guest-read` | pointer paths, conditions, monitors |
 | `guest-write` | writes |
 | `code-bytes` | patches; overrides where the original code runs |
 | `code-hook` | overrides in a recompilation |
@@ -440,16 +464,18 @@ A reader checks each signature against the keys it trusts: keys built into the r
 | Result | Meaning |
 |---|---|
 | `verified` | A trusted key signed it. The runtime shows who, by the name its trust list gives the key |
-| `unknown-key` | Signed, by a key the reader does not trust. Treated as unsigned |
-| `unsigned` | No signature |
+| `unsigned` | No signature. Loaded and applied like any file, without a warning or a mark |
+| `unknown-key` | Signed, by a key the reader does not trust. The same as `unsigned` |
 | `invalid` | A signature does not match the bytes: the file was changed after signing. The reader MUST NOT apply the file |
 | `revoked` | Signed by a key on the revocation list. The reader MUST NOT apply the file |
+
+A signature is optional. It is a mark of origin for files someone wants to vouch for, such as a curated pack; a runtime MUST NOT warn about, hide or treat differently a file only because it is unsigned. Only `verified` gets a mark in the runtime's interface.
 
 Mistel publishes its public keys and its revocation list in `docs/keys.md`. A signature says who made a file and that it is unchanged. It does not say that the cheats are harmless; the checks of section 11 do that.
 
 ## 13. Packs
 
-A pack is a ZIP file with several `.mncf` files and a manifest, `pack.toml`, at its root:
+A pack bundles several `.mncf` files, for one game or many. It is a ZIP file with the extension **`.mncp`** (Mistel Native Cheat Pack), the same way an `.apk` or a `.docx` is a ZIP: the extension lets a phone or a desktop open the pack in the right program instead of an archive app. Its manifest, `pack.toml`, is at the root:
 
 ```toml
 format = "mncf-pack/1"
@@ -525,7 +551,6 @@ format = "mncf/1"
 name = "Example Quest cheats"
 authors = ["someone"]
 file_version = "3"
-extensions = { optional = ["conditions/1"] }
 
 [game]
 platform = "switch"
@@ -596,6 +621,7 @@ group = "Battle"
 id = "heal-low"
 name = "Heal when low"
 group = "Battle"
+trigger = "enter"
 
   [[cheat.when]]
   at = { region = "heap", offset = 0x1300 }
@@ -639,9 +665,3 @@ cheats = ["money", "no-damage"]
 [i18n.de.cheat.money]
 name = "Geld bleibt gleich"
 ```
-
-## Open questions for this draft
-
-- The file extension of a pack: a ZIP with `pack.toml` could keep `.zip`, or get its own extension.
-- Whether `conditions/1` belongs in the core, since many cheats of older formats use conditions.
-- The default for unsigned files: load as today, or ask the player the first time.
