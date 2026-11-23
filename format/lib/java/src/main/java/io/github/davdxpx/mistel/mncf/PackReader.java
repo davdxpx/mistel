@@ -13,6 +13,12 @@ public final class PackReader {
     private static final List<String> PACK_KEYS = Values.list("format", "name", "authors", "about", "file_version", "file");
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
 
+    /** The most entries, directories not counted, a pack may have. */
+    public static final int MAX_ENTRIES = 4096;
+
+    /** The most bytes a reader reads from one pack: the manifest and the files it lists, 256 MiB. */
+    public static final long MAX_TOTAL = 256L * 1024 * 1024;
+
     private PackReader() {
     }
 
@@ -38,10 +44,17 @@ public final class PackReader {
      * @param zip the bytes of the .mncp file
      * @param trust the keys the reader trusts, or null for none
      * @throws MncfException when the pack cannot be used at all: zip, manifest, format,
-     *     schema:&lt;key&gt; or path:&lt;path&gt;
+     *     schema:&lt;key&gt; or path:&lt;path&gt;, or size for a pack of more than
+     *     {@link #MAX_ENTRIES} entries, an entry of more than {@link Mncf#MAX_FILE} bytes, or
+     *     more than {@link #MAX_TOTAL} bytes to read
      */
-    @SuppressWarnings("unchecked")
     public static Pack read(byte[] zip, TrustList trust) throws MncfException {
+        return read(zip, trust, MAX_TOTAL);
+    }
+
+    /** Reads a pack with another limit for the bytes it reads, so that tests can reach it. */
+    @SuppressWarnings("unchecked")
+    static Pack read(byte[] zip, TrustList trust, long maxTotal) throws MncfException {
         Zip archive;
         List<String> names = new ArrayList<>();
         try {
@@ -54,13 +67,17 @@ public final class PackReader {
                 names.add(e.name);
             }
         }
+        if (names.size() > MAX_ENTRIES) {
+            throw new MncfException("size", "the pack has more than " + MAX_ENTRIES + " entries");
+        }
+        long[] budget = {0, maxTotal};
         if (new HashSet<>(names).size() != names.size()) {
             throw new MncfException("zip", "two entries have the same name");
         }
         if (!names.contains("pack.toml")) {
             throw new MncfException("manifest", "there is no pack.toml at the root");
         }
-        byte[] raw = read(archive, "pack.toml");
+        byte[] raw = read(archive, "pack.toml", budget);
         String text;
         try {
             text = Mncf.decode(raw);
@@ -147,7 +164,7 @@ public final class PackReader {
                 files.add(new PackFile((String) path, (String) digest, null, PackFile.MISSING));
                 continue;
             }
-            byte[] data = read(archive, (String) path);
+            byte[] data = read(archive, (String) path, budget);
             if (!hex(Signatures.sha256(data)).equals(digest)) {
                 files.add(new PackFile((String) path, (String) digest, null, PackFile.HASH));
             } else {
@@ -157,12 +174,34 @@ public final class PackReader {
         return new Pack((String) name, signature, files, authors, about, fileVersion, warnings);
     }
 
-    private static byte[] read(Zip archive, String name) throws MncfException {
-        try {
-            return archive.read(archive.entry(name));
-        } catch (Zip.ZipError e) {
-            throw new MncfException("zip", name + " cannot be read (" + e.getMessage() + ")");
+    /**
+     * The bytes of one entry: only a stored or deflated entry that is not encrypted, and none of
+     * more than {@link Mncf#MAX_FILE} bytes, whatever its header claims.
+     *
+     * @param budget the bytes read from the pack so far, and the most it may read; updated
+     */
+    private static byte[] read(Zip archive, String name, long[] budget) throws MncfException {
+        Zip.Entry e = archive.entry(name);
+        if (!Zip.readable(e)) {
+            throw new MncfException("zip", name + ": neither stored nor deflated, or encrypted");
         }
+        if (Long.compareUnsigned(e.size, Mncf.MAX_FILE) > 0) {
+            throw new MncfException("size", name + ": more than " + Mncf.MAX_FILE + " bytes");
+        }
+        byte[] data;
+        try {
+            data = archive.read(e, Mncf.MAX_FILE + 1);
+        } catch (Zip.ZipError ex) {
+            throw new MncfException("zip", name + " cannot be read (" + ex.getMessage() + ")");
+        }
+        if (data.length > Mncf.MAX_FILE) {
+            throw new MncfException("size", name + ": more than " + Mncf.MAX_FILE + " bytes");
+        }
+        budget[0] += data.length;
+        if (budget[0] > budget[1]) {
+            throw new MncfException("size", "the pack holds more than " + budget[1] + " bytes");
+        }
+        return data;
     }
 
     private static String hex(byte[] bytes) {

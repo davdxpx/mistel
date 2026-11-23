@@ -48,7 +48,7 @@ dependencies {
 Reading and evaluating:
 
 ```java
-TrustList trust = new TrustList().trust("Mistel", publicKeyBytes);
+TrustList trust = TrustList.fromToml(keysText);         // a trust list file, or new TrustList().trust(name, key)
 MncfFile file = Mncf.load(bytes, trust);                // throws MncfException with code()
 
 Module main = Module.builder("A1B2C3D4E5F60718")        // the build ID of the module that runs
@@ -91,6 +91,8 @@ Converter.Export back = Converter.toAtmosphere(Mncf.load(bytes), "1.0.0", module
 back.fileName();                                        // "0123456789ABCDEF.txt"
 back.text();
 ```
+
+A file may have at most 16 MiB (`Mncf.MAX_FILE`). A pack may have at most 4096 entries, none of more than 16 MiB whatever its header claims, and a reader reads at most 256 MiB from it; beyond that the error code is `size`.
 
 Addresses and offsets are unsigned 64-bit numbers in a `long`. Values are a `Long`, a `BigInteger` for a whole number of 2^63 or more, a `Double` or a `Boolean`; `longValue()` gives the 64 bits of any whole number. All result types are immutable. A `Module` and a `CodeModule` keep the image array they are given without copying it, so the caller must not change it afterwards. Pattern search is fast on large modules: it looks for the pattern's longest run of fixed bytes with a skip table and then checks the rest.
 
