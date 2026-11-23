@@ -299,9 +299,22 @@ final class Zip {
         return b.toString();
     }
 
+    /** Whether an entry is stored or deflated and not encrypted: the only entries this reader reads. */
+    static boolean readable(Entry e) {
+        return (e.method == 0 || e.method == 8) && (e.flags & 0x1) == 0;
+    }
+
     /** Reads an entry's bytes, checking its local header, its place in the archive and its CRC-32. */
     byte[] read(Entry e) throws ZipError {
-        if ((e.method != 0 && e.method != 8) || (e.flags & 0x1) != 0) {
+        return read(e, Long.MAX_VALUE);
+    }
+
+    /**
+     * Reads at most limit bytes of an entry, whatever its header claims. The CRC-32 is checked
+     * when the read reaches the entry's end.
+     */
+    byte[] read(Entry e, long limit) throws ZipError {
+        if (!readable(e)) {
             throw new ZipError(e.name + ": neither stored nor deflated, or encrypted");
         }
         long h = e.headerOffset;
@@ -337,15 +350,16 @@ final class Zip {
             throw new ZipError("the entry's data is cut off");
         }
         long size = e.size < 0 ? Long.MAX_VALUE : e.size;
+        long cap = Math.min(size, limit);
         byte[] out;
         if (e.method == 0) {
-            out = Arrays.copyOfRange(data, (int) start, (int) (start + Math.min(e.compressedSize, size)));
+            out = Arrays.copyOfRange(data, (int) start, (int) (start + Math.min(e.compressedSize, cap)));
         } else if (e.method == 8) {
-            out = inflate(Arrays.copyOfRange(data, (int) start, (int) (start + e.compressedSize)), size);
+            out = inflate(Arrays.copyOfRange(data, (int) start, (int) (start + e.compressedSize)), cap);
         } else {
             throw new ZipError("compression type " + e.method + " is not supported");
         }
-        if (crc32(out) != e.crc) {
+        if (cap == size && crc32(out) != e.crc) {
             throw new ZipError("Bad CRC-32 for file " + Py.repr(e.name));
         }
         return out;

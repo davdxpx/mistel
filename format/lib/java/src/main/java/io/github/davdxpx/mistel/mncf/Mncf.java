@@ -21,6 +21,9 @@ public final class Mncf {
     /** The format version this reader reads. */
     public static final String FORMAT = "mncf/1";
 
+    /** The most bytes a file, and an entry of a pack, may have: 16 MiB. */
+    public static final int MAX_FILE = 16 * 1024 * 1024;
+
     /** The extensions this reader knows, with their versions. */
     public static final List<String> KNOWN_EXTENSIONS = Schema.KNOWN_EXTENSIONS;
 
@@ -43,11 +46,15 @@ public final class Mncf {
     /**
      * Reads and checks an .mncf file and its signature lines.
      *
-     * @param data the bytes of the file
+     * @param data the bytes of the file, at most {@link #MAX_FILE} of them
      * @param trust the keys the reader trusts, or null for none
-     * @throws MncfException when the file cannot be used at all
+     * @throws MncfException when the file cannot be used at all, with the code "size" for a
+     *     file of more than {@link #MAX_FILE} bytes
      */
     public static MncfFile load(byte[] data, TrustList trust) throws MncfException {
+        if (data.length > MAX_FILE) {
+            throw new MncfException("size", "the file has more than " + MAX_FILE + " bytes");
+        }
         byte[] copy = data.clone();
         String text = decode(copy);
         Map<String, Object> doc = parseToml(text, "toml");

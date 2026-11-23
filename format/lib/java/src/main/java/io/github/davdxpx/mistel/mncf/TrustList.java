@@ -1,12 +1,14 @@
 package io.github.davdxpx.mistel.mncf;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The keys a reader trusts, by name, and the key ids it no longer trusts (section 12). A caller
@@ -72,5 +74,76 @@ public final class TrustList {
     List<Key> keys(String keyId) {
         List<Key> list = keys.get(keyId);
         return list == null ? Collections.<Key>emptyList() : list;
+    }
+
+    private static final Pattern KEY_ID = Pattern.compile("[0-9a-f]{16}");
+
+    /**
+     * Returns the trust list a trust list file holds ({@code format = "mncf-keys/1"}, section
+     * 12): its keys in file order, and its revoked key ids.
+     *
+     * @throws MncfException with the code toml for text that is not TOML of the format, format
+     *     when {@code format = "mncf-keys/1"} is not the first key, schema:key for a key without
+     *     a name, without a public key of 32 bytes in canonical base64, or with an id that is not
+     *     the public key's, and schema:revoked for a revoked id that is not 16 lower-case
+     *     hexadecimal digits
+     */
+    @SuppressWarnings("unchecked")
+    public static TrustList fromToml(String text) throws MncfException {
+        Map<String, Object> doc = Mncf.parseToml(text, "toml");
+        if (doc.isEmpty() || !doc.keySet().iterator().next().equals("format") || !"mncf-keys/1".equals(doc.get("format"))) {
+            throw new MncfException("format", "`format = \"mncf-keys/1\"` must be the first key of a trust list");
+        }
+        TrustList trust = new TrustList();
+        Object keys = doc.containsKey("key") ? doc.get("key") : Collections.emptyList();
+        Object revoked = doc.containsKey("revoked") ? doc.get("revoked") : Collections.emptyList();
+        if (!isTableArrayOrEmpty(keys)) {
+            throw new MncfException("schema:key", "`key` must be an array of tables");
+        }
+        for (Object item : (List<Object>) keys) {
+            Map<String, Object> k = (Map<String, Object>) item;
+            Object name = k.get("name");
+            Object pub = k.get("public");
+            byte[] raw = new byte[0];
+            if (pub instanceof String) {
+                try {
+                    raw = Base64.getDecoder().decode((String) pub);
+                } catch (IllegalArgumentException e) {
+                    raw = new byte[0];
+                }
+            }
+            if (!(name instanceof String) || ((String) name).isEmpty() || raw.length != 32
+                    || !Base64.getEncoder().encodeToString(raw).equals(pub)) {
+                throw new MncfException("schema:key", "a key needs a `name` and a `public` key of 32 bytes in base64");
+            }
+            if (k.containsKey("id") && !Signatures.keyId(raw).equals(k.get("id"))) {
+                throw new MncfException("schema:key", "the key id of " + Py.repr(name) + " is " + Signatures.keyId(raw)
+                        + ", not " + Py.repr(k.get("id")));
+            }
+            trust.trust((String) name, raw);
+        }
+        if (!isTableArrayOrEmpty(revoked)) {
+            throw new MncfException("schema:revoked", "`revoked` must be an array of tables");
+        }
+        for (Object item : (List<Object>) revoked) {
+            Object kid = ((Map<String, Object>) item).get("id");
+            if (!Py.matches(KEY_ID, kid)) {
+                throw new MncfException("schema:revoked", "a revoked key needs an `id` of 16 lower-case hexadecimal digits");
+            }
+            trust.revoke((String) kid);
+        }
+        return trust;
+    }
+
+    private static boolean isTableArrayOrEmpty(Object v) {
+        if (!(v instanceof List)) {
+            return false;
+        }
+        for (Object x : (List<?>) v) {
+            if (!(x instanceof Map)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

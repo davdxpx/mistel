@@ -5,10 +5,12 @@ import re
 import zipfile
 from dataclasses import dataclass, field
 
-from . import decode, parse_toml, signature
+from . import MAX_FILE, decode, parse_toml, signature
 from .model import MncfError
 
 PACK_KEYS = ('format', 'name', 'authors', 'about', 'file_version', 'file')
+MAX_ENTRIES = 4096                 # entries of a pack
+MAX_TOTAL = 256 * 1024 * 1024      # bytes of all the entries a reader reads from one pack
 _SHA256 = re.compile(r'^[0-9a-f]{64}\Z')
 
 
@@ -41,14 +43,24 @@ def valid_path(path):
     return bool(path) and '\\' not in path and all(p and p not in ('.', '..') for p in parts)
 
 
-def _entry(archive, info):
-    """The bytes of one entry. Only stored and deflated entries are read, so that every reader reads the same packs."""
+def _entry(archive, info, budget):
+    """The bytes of one entry. Only stored and deflated entries are read, so that every reader reads the same packs,
+    and none larger than MAX_FILE, whatever its header claims."""
     if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) or info.flag_bits & 1:
         raise MncfError('zip', f'{info.orig_filename}: neither stored nor deflated, or encrypted')
+    if info.file_size > MAX_FILE:
+        raise MncfError('size', f'{info.orig_filename}: more than {MAX_FILE} bytes')
     try:
-        return archive.read(info)
+        with archive.open(info) as fh:
+            data = fh.read(MAX_FILE + 1)
     except (zipfile.BadZipFile, OSError, ValueError, EOFError, RuntimeError, NotImplementedError) as e:
         raise MncfError('zip', f'{info.orig_filename}: {e}') from None
+    if len(data) > MAX_FILE:
+        raise MncfError('size', f'{info.orig_filename}: more than {MAX_FILE} bytes')
+    budget[0] += len(data)
+    if budget[0] > MAX_TOTAL:
+        raise MncfError('size', f'the pack holds more than {MAX_TOTAL} bytes')
+    return data
 
 
 def read_pack(data, trust=None):
@@ -58,6 +70,9 @@ def read_pack(data, trust=None):
         infos = [i for i in archive.infolist() if not i.orig_filename.endswith('/')]
     except (zipfile.BadZipFile, OSError, ValueError, EOFError) as e:
         raise MncfError('zip', f'not a ZIP file ({e})') from None
+    if len(infos) > MAX_ENTRIES:
+        raise MncfError('size', f'the pack has more than {MAX_ENTRIES} entries')
+    budget = [0]
     entries_by_name = {}
     for info in infos:
         if info.orig_filename in entries_by_name:
@@ -65,7 +80,7 @@ def read_pack(data, trust=None):
         entries_by_name[info.orig_filename] = info
     if 'pack.toml' not in entries_by_name:
         raise MncfError('manifest', 'there is no pack.toml at the root')
-    raw = _entry(archive, entries_by_name['pack.toml'])
+    raw = _entry(archive, entries_by_name['pack.toml'], budget)
     try:
         text = decode(raw)
     except MncfError as e:
@@ -110,7 +125,7 @@ def read_pack(data, trust=None):
         if path not in entries_by_name:
             item.status = 'missing'
         else:
-            item.data = _entry(archive, entries_by_name[path])
+            item.data = _entry(archive, entries_by_name[path], budget)
             if hashlib.sha256(item.data).hexdigest() != digest:
                 item.status, item.data = 'hash', None
         pack.files.append(item)

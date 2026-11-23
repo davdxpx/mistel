@@ -35,6 +35,40 @@ class TrustList:
         return self._keys.get(kid, [])
 
 
+_KEY_ID = re.compile(r'^[0-9a-f]{16}\Z')
+
+
+def read_trust_list(text):
+    """A TrustList from the text of a trust list file (`format = "mncf-keys/1"`, spec section 12)."""
+    from . import MncfError, parse_toml
+    doc = parse_toml(text)
+    if not doc or next(iter(doc)) != 'format' or doc['format'] != 'mncf-keys/1':
+        raise MncfError('format', '`format = "mncf-keys/1"` must be the first key of a trust list')
+    trust = TrustList()
+    keys, revoked = doc.get('key', []), doc.get('revoked', [])
+    if not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
+        raise MncfError('schema:key', '`key` must be an array of tables')
+    for k in keys:
+        name, public = k.get('name'), k.get('public')
+        try:
+            raw = base64.b64decode(public, validate=True) if isinstance(public, str) else b''
+        except ValueError:
+            raw = b''
+        if not isinstance(name, str) or not name or len(raw) != 32 or base64.b64encode(raw).decode() != public:
+            raise MncfError('schema:key', 'a key needs a `name` and a `public` key of 32 bytes in base64')
+        if 'id' in k and k['id'] != key_id(raw):
+            raise MncfError('schema:key', f'the key id of {name!r} is {key_id(raw)}, not {k["id"]!r}')
+        trust.trust(name, raw)
+    if not isinstance(revoked, list) or not all(isinstance(r, dict) for r in revoked):
+        raise MncfError('schema:revoked', '`revoked` must be an array of tables')
+    for r in revoked:
+        kid = r.get('id')
+        if not isinstance(kid, str) or not _KEY_ID.match(kid):
+            raise MncfError('schema:revoked', 'a revoked key needs an `id` of 16 lower-case hexadecimal digits')
+        trust.revoke(kid)
+    return trust
+
+
 def split(data):
     """(signed bytes, signature lines, whether only signature lines follow the first one)."""
     at = 0 if data.startswith(PREFIX) else data.find(b'\n' + PREFIX)

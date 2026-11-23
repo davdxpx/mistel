@@ -26,7 +26,8 @@ for c in ev.cheats:
     print(c.id, c.state, c.reason, [op.as_dict() for op in c.ops])
 ```
 
-- `f.signature` is `verified`, `unsigned`, `unknown-key`, `invalid` or `revoked`. A `TrustList` holds the keys a runtime trusts (`trust(name, public_key)`) and the key ids it no longer trusts (`revoke(key_id)`).
+- `f.signature` is `verified`, `unsigned`, `unknown-key`, `invalid` or `revoked`. A `TrustList` holds the keys a runtime trusts (`trust(name, public_key)`) and the key ids it no longer trusts (`revoke(key_id)`); `mncf.read_trust_list(text)` reads one from a trust list file (`mncf-keys/1`, such as Mistel's own [`docs/keys.toml`](../../../docs/keys.toml)).
+- Files and pack entries of more than 16 MiB, packs of more than 4,096 entries and more than 256 MiB in all are refused with `size`, whatever a ZIP header claims, so that a hostile pack cannot fill a runtime's memory.
 - `Runtime` says what the runtime can do: `capabilities` (section 11.1), `extensions` (default `raw/1` and `arm64-imm/1`), `raw_syntaxes`, `arch`, `held` buttons, and `build` for a runtime that names its build itself.
 - Each operation comes back resolved: a patch's address, `expect` and `bytes` (for `arm64-imm/1`, the encoded instruction), a write's bytes in the platform's byte order, an override's stub, a condition's address and value.
 - `mncf.pack.read_pack(data, trust)` reads a pack: its manifest's signature result and each listed file with its status `ok`, `hash` or `missing`.
