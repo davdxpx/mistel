@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Mistel does not work as it should
+labels: [bug]
+body:
+  - type: dropdown
+    id: part
+    attributes:
+      label: Part
+      options:
+        - Cheat format (.mncf) or a reader
+        - Tools (mistel command)
+        - Muninn
+        - An engine adapter
+        - SDK
+        - Lab
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps, and a made-up file that shows it if a file is involved.
+  - type: input
+    id: setup
+    attributes:
+      label: Device, Android version and emulator version
+      placeholder: e.g. AYN Thor, Android 13, Peanuts Native 0.1.7
+  - type: input
+    id: game
+    attributes:
+      label: Game title ID and version, if a game is involved
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Look at what you attach before you attach it.
+      render: text
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: My report has no game files, keys, firmware or links to them, and doesn't ask for any.
+          required: true

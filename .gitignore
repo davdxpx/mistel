@@ -1,0 +1,41 @@
+# Game files, dumps and keys never go into this repository (CONTRIBUTING.md)
+*.nsp
+*.nsz
+*.xci
+*.xcz
+*.nca
+*.ncz
+*.nso
+*.nro
+*.nup
+*.keys
+*-work/
+
+# Signing keys stay offline
+*.key
+*.pem
+*.p12
+*.minisign
+secret*
+
+# Build output and caches
+build/
+out/
+dist/
+*.o
+*.so
+*.a
+*.jar
+*.class
+__pycache__/
+*.pyc
+.venv/
+.gradle/
+local.properties
+
+# Editors and systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
