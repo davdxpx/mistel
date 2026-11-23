@@ -49,8 +49,8 @@ public final class ConformanceTest {
         }
     }
 
-    /** The kinds of cases, by folder: files the reader reads, packs, and conversions. */
-    private static final String[] KINDS = {"cases", "packs", "convert"};
+    /** The kinds of cases, by folder: files the reader reads, packs, conversions, and passes. */
+    private static final String[] KINDS = {"cases", "packs", "convert", "passes"};
 
     public static void testSuite() throws Exception {
         List<String> problems = new ArrayList<>();
@@ -58,7 +58,7 @@ public final class ConformanceTest {
         int failed = 0;
         for (Case c : cases()) {
             total++;
-            List<String> found = compare(map(c.table.get("expect")), results(c), c.folder);
+            List<String> found = check(c, results(c));
             if (!found.isEmpty()) {
                 failed++;
                 for (String p : found) {
@@ -95,7 +95,7 @@ public final class ConformanceTest {
             total++;
             Map<String, Object> got = results(c);
             all.put(c.name, got);
-            List<String> found = compare(map(c.table.get("expect")), got, c.folder);
+            List<String> found = check(c, got);
             if (!found.isEmpty()) {
                 failed++;
                 for (String p : found) {
@@ -153,7 +153,18 @@ public final class ConformanceTest {
         return out;
     }
 
+    /** The differences between a case's expected results and what this library gives, as lines. */
+    static List<String> check(Case c, Map<String, Object> got) throws IOException {
+        if (c.kind.equals("passes")) {
+            return comparePasses(c.table, got);
+        }
+        return compare(map(c.table.get("expect")), got, c.folder);
+    }
+
     private static Map<String, Object> results(Case c) throws IOException {
+        if (c.kind.equals("passes")) {
+            return passResults(c.table, c.folder);
+        }
         if (c.kind.equals("packs")) {
             return packResults(c.table, c.folder);
         }
@@ -259,6 +270,45 @@ public final class ConformanceTest {
         return trust;
     }
 
+    /** The guest memory of a case: the modules' images, the regions, and pieces of their own. */
+    static final class Memory implements GuestMemory {
+        final List<Chunk> chunks = new ArrayList<>();
+
+        void add(long start, byte[] data) {
+            chunks.add(new Chunk(start, data.clone()));
+        }
+
+        /** Writes bytes into the piece they lie in, or makes a piece of their own. */
+        void put(long at, byte[] raw) {
+            for (Chunk c : chunks) {
+                if (c.holds(at, raw.length)) {
+                    System.arraycopy(raw, 0, c.buf, (int) (at - c.start), raw.length);
+                    return;
+                }
+            }
+            chunks.add(new Chunk(at, raw.clone()));
+        }
+
+        @Override
+        public byte[] read(long address, int size) {
+            for (Chunk c : chunks) {
+                if (c.holds(address, size)) {
+                    int from = (int) (address - c.start);
+                    return Arrays.copyOfRange(c.buf, from, from + size);
+                }
+            }
+            return null;
+        }
+    }
+
+    static void putPieces(Memory memory, Object pieces) {
+        for (Object piece : list(pieces)) {
+            Map<String, Object> p = map(piece);
+            byte[] raw = p.containsKey("hex") ? hex((String) p.get("hex")) : new byte[((Long) p.get("size")).intValue()];
+            memory.put((Long) p.get("at"), raw);
+        }
+    }
+
     /** A piece of guest memory: where it starts and its bytes. */
     private static final class Chunk {
         final long start;
@@ -276,7 +326,11 @@ public final class ConformanceTest {
     }
 
     static Runtime runtime(Map<String, Object> env) {
-        final List<Chunk> chunks = new ArrayList<>();
+        return runtime(env, new Memory());
+    }
+
+    /** The runtime of a case's [env] table, with its guest memory in the memory given. */
+    static Runtime runtime(Map<String, Object> env, Memory memory) {
         Runtime.Builder b = Runtime.builder(env.containsKey("platform") ? (String) env.get("platform") : "switch");
         for (Map.Entry<String, Object> e : map(env.get("modules")).entrySet()) {
             Map<String, Object> m = map(e.getValue());
@@ -296,43 +350,17 @@ public final class ConformanceTest {
                 }
             }
             b.module(e.getKey(), mb.build());
-            chunks.add(new Chunk(base, data.clone()));
+            memory.add(base, data);
         }
         for (Map.Entry<String, Object> e : map(env.get("regions")).entrySet()) {
             Map<String, Object> r = map(e.getValue());
             long base = (Long) r.get("base");
             long size = (Long) r.get("size");
             b.region(e.getKey(), base, size);
-            chunks.add(new Chunk(base, new byte[(int) size]));
+            memory.add(base, new byte[(int) size]);
         }
-        for (Object piece : list(env.get("memory"))) {
-            Map<String, Object> p = map(piece);
-            byte[] raw = p.containsKey("hex") ? hex((String) p.get("hex")) : new byte[((Long) p.get("size")).intValue()];
-            long at = (Long) p.get("at");
-            boolean placed = false;
-            for (Chunk c : chunks) {
-                if (c.holds(at, raw.length)) {
-                    System.arraycopy(raw, 0, c.buf, (int) (at - c.start), raw.length);
-                    placed = true;
-                    break;
-                }
-            }
-            if (!placed) {
-                chunks.add(new Chunk(at, raw));
-            }
-        }
-        b.memory(new GuestMemory() {
-            @Override
-            public byte[] read(long address, int size) {
-                for (Chunk c : chunks) {
-                    if (c.holds(address, size)) {
-                        int from = (int) (address - c.start);
-                        return Arrays.copyOfRange(c.buf, from, from + size);
-                    }
-                }
-                return null;
-            }
-        });
+        putPieces(memory, env.get("memory"));
+        b.memory(memory);
         b.gameId((String) env.get("game"));
         b.arch((String) env.get("arch"));
         if (env.containsKey("capabilities")) {
@@ -386,6 +414,198 @@ public final class ConformanceTest {
         }
         out.put("cheat", cheats);
         return out;
+    }
+
+    /** The keys a step of a pass case may have, and the keys of its expect table. */
+    static final List<String> STEP_KEYS = Arrays.asList("about", "memory", "values", "off", "on", "held", "press",
+            "now", "pass", "stop", "expect");
+    static final List<String> STEP_EXPECT_KEYS = Arrays.asList("changes", "shown", "cheat");
+
+    private static Map<String, Object> states(List<CheatState> states) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (CheatState c : states) {
+            Map<String, Object> one = new LinkedHashMap<>();
+            one.put("state", c.state());
+            one.put("reason", c.reason());
+            out.put(c.id(), one);
+        }
+        return out;
+    }
+
+    private static List<Object> changes(List<Change> changes) {
+        List<Object> out = new ArrayList<>();
+        for (Change ch : changes) {
+            out.add(ch.toMap());
+        }
+        return out;
+    }
+
+    /**
+     * What the engine does in a pass case: the states after loading, and for each step the
+     * changes of its pass, every cheat's state after it, and what the monitors read. The changes
+     * of each pass are made in the memory.
+     */
+    static Map<String, Object> passResults(Map<String, Object> c, File folder) throws IOException {
+        Map<String, Object> out = new LinkedHashMap<>();
+        MncfFile f;
+        try {
+            f = Mncf.load(caseBytes(c, folder), trustList(c));
+        } catch (MncfException e) {
+            out.put("error", e.code());
+            return out;
+        }
+        Map<String, Object> env = map(c.get("env"));
+        Memory memory = new Memory();
+        Runtime rt = runtime(env, memory);
+        Choices.Builder choices = Choices.builder().on(strings(env.get("on"))).off(strings(env.get("off")));
+        for (Map.Entry<String, Object> v : map(env.get("values")).entrySet()) {
+            choices.value(v.getKey(), v.getValue());
+        }
+        double rate = c.containsKey("rate") ? ((Number) c.get("rate")).doubleValue() : 60;
+        Engine engine = new Engine(f, rt, choices.build(), rate);
+        out.put("load", states(engine.states()));
+        List<Object> steps = new ArrayList<>();
+        for (Object item : list(c.get("step"))) {
+            Map<String, Object> step = map(item);
+            putPieces(memory, step.get("memory"));
+            for (Map.Entry<String, Object> v : map(step.get("values")).entrySet()) {
+                engine.setValue(v.getKey(), v.getValue());
+            }
+            for (String id : strings(step.get("off"))) {
+                engine.switchCheat(id, false);
+            }
+            for (String id : strings(step.get("on"))) {
+                engine.switchCheat(id, true);
+            }
+            if (step.containsKey("held")) {
+                engine.hold(strings(step.get("held")));
+            }
+            for (String combo : strings(step.get("press"))) {
+                engine.press(combo);
+            }
+            Map<String, Object> got = new LinkedHashMap<>();
+            if (Boolean.TRUE.equals(step.get("stop"))) {
+                got.put("changes", changes(engine.stop()));
+                got.put("shown", new LinkedHashMap<String, Object>());
+            } else if (!Boolean.FALSE.equals(step.get("pass"))) {
+                Object now = step.get("now");
+                Pass pass = engine.tick(memory, now == null ? null : ((Number) now).doubleValue());
+                got.put("changes", changes(pass.changes()));
+                Map<String, Object> shown = new LinkedHashMap<>();
+                for (Map.Entry<String, List<Shown>> e : pass.shown().entrySet()) {
+                    List<Object> values = new ArrayList<>();
+                    for (Shown v : e.getValue()) {
+                        values.add(v.toMap());
+                    }
+                    shown.put(e.getKey(), values);
+                }
+                got.put("shown", shown);
+            }
+            for (Object ch : list(got.get("changes"))) {
+                Map<String, Object> m = map(ch);
+                String kind = (String) m.get("kind");
+                if (kind.equals("patch") || kind.equals("restore") || kind.equals("write")) {
+                    memory.put(((Number) m.get("address")).longValue(), hex((String) m.get("bytes")));
+                }
+            }
+            got.put("cheat", states(engine.states()));
+            steps.add(got);
+        }
+        out.put("steps", steps);
+        return out;
+    }
+
+    /** The differences between a pass case's expected results and what the engine did, as lines. */
+    static List<String> comparePasses(Map<String, Object> c, Map<String, Object> got) {
+        List<String> problems = new ArrayList<>();
+        if (got.containsKey("error")) {
+            problems.add("error: the file does not load (" + got.get("error") + ")");
+            return problems;
+        }
+        compareStates(problems, "load: ", map(map(c.get("expect")).get("cheat")), map(got.get("load")));
+        List<Object> steps = list(c.get("step"));
+        List<Object> gotSteps = list(got.get("steps"));
+        for (int n = 1; n <= steps.size() && n <= gotSteps.size(); n++) {
+            Map<String, Object> step = map(steps.get(n - 1));
+            Map<String, Object> g = map(gotSteps.get(n - 1));
+            Map<String, Object> want = map(step.get("expect"));
+            List<String> unknown = new ArrayList<>();
+            for (String key : step.keySet()) {
+                if (!STEP_KEYS.contains(key)) {
+                    unknown.add(key);
+                }
+            }
+            Collections.sort(unknown);
+            List<String> unknownExpect = new ArrayList<>();
+            for (String key : want.keySet()) {
+                if (!STEP_EXPECT_KEYS.contains(key)) {
+                    unknownExpect.add(key);
+                }
+            }
+            Collections.sort(unknownExpect);
+            unknown.addAll(unknownExpect);
+            for (String key : unknown) {
+                problems.add("step " + n + ": unknown key " + key);
+            }
+            if (g.containsKey("changes")) {
+                compareItems(problems, "step " + n + ": changes", list(want.get("changes")), list(g.get("changes")));
+                Map<String, Object> shownWant = map(want.get("shown"));
+                Map<String, Object> shownGot = map(g.get("shown"));
+                if (!new HashSet<>(shownWant.keySet()).equals(new HashSet<>(shownGot.keySet()))) {
+                    List<String> a = new ArrayList<>(shownWant.keySet());
+                    List<String> b = new ArrayList<>(shownGot.keySet());
+                    Collections.sort(a);
+                    Collections.sort(b);
+                    problems.add("step " + n + ": shown: expected " + a + ", got " + b);
+                }
+                for (Map.Entry<String, Object> e : shownWant.entrySet()) {
+                    if (shownGot.containsKey(e.getKey())) {
+                        compareItems(problems, "step " + n + ": shown." + e.getKey(), list(e.getValue()),
+                                list(shownGot.get(e.getKey())));
+                    }
+                }
+            } else if (want.containsKey("changes") || want.containsKey("shown")) {
+                problems.add("step " + n + ": expects changes, but has no pass");
+            }
+            compareStates(problems, "step " + n + ": ", map(want.get("cheat")), map(g.get("cheat")));
+        }
+        return problems;
+    }
+
+    private static void compareStates(List<String> problems, String where, Map<String, Object> want,
+            Map<String, Object> have) {
+        for (Map.Entry<String, Object> e : want.entrySet()) {
+            String id = e.getKey();
+            if (!have.containsKey(id)) {
+                problems.add(where + id + ": no such cheat");
+                continue;
+            }
+            Map<String, Object> w = map(e.getValue());
+            Map<String, Object> h = map(have.get(id));
+            for (String key : new String[] {"state", "reason"}) {
+                if (w.containsKey(key) && !pyEquals(w.get(key), h.get(key))) {
+                    problems.add(where + id + "." + key + ": expected " + Py.repr(w.get(key)) + ", got "
+                            + Py.repr(h.get(key)));
+                }
+            }
+        }
+    }
+
+    private static void compareItems(List<String> problems, String where, List<Object> want, List<Object> have) {
+        if (want.size() != have.size()) {
+            problems.add(where + ": expected " + want.size() + ", got " + have.size() + ": " + have);
+            return;
+        }
+        for (int i = 0; i < want.size(); i++) {
+            Map<String, Object> w = map(want.get(i));
+            Map<String, Object> g = map(have.get(i));
+            for (Map.Entry<String, Object> k : w.entrySet()) {
+                if (!g.containsKey(k.getKey()) || !same(k.getValue(), g.get(k.getKey()), k.getKey())) {
+                    problems.add(where + "[" + i + "]." + k.getKey() + ": expected " + Py.repr(k.getValue()) + ", got "
+                            + Py.repr(g.get(k.getKey())));
+                }
+            }
+        }
     }
 
     static Map<String, Object> packResults(Map<String, Object> c, File folder) throws IOException {

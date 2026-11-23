@@ -4,11 +4,12 @@ A Java library that reads, writes and converts files of the Mistel Native Cheat 
 
 - **Read:** it reads an `.mncf` file and checks it against the [spec](../../spec/mncf-1.md). A file that cannot be used at all gives an error code of Appendix D; a cheat that breaks a rule is refused with its reason. It checks the file's signature lines (Ed25519) against the keys the caller trusts.
 - **Evaluate:** for a runtime, it identifies the build that runs, resolves every place (module offsets, patterns, regions, absolute addresses, pointer paths) and gives each cheat its state, reason and the bytes to write.
+- **Run:** a reference pass engine (spec, section 11.5): it takes what the player does and the guest memory of each pass, and gives the patches, restores, hooks and writes of the pass as one batch, each cheat's state and what the monitors read.
 - **Packs:** it reads packs (`.mncp`): the manifest, its signature and the hash of each file.
 - **Write:** it writes any document in one fixed layout. Writing a file that was read gives the same file again, without its signature lines.
 - **Convert:** it converts Atmosphère cheat files to `.mncf` (section 15), with or without the code module of each build, and a loaded file back to an Atmosphère cheat file for one build.
 
-The Python library is the reference. Both libraries pass the conformance suite in [`../../tests/`](../../tests/) with identical results: the file cases, the pack cases, and the conversion cases, whose expected `.mncf` text the Java converter writes byte for byte.
+The Python library is the reference. Both libraries pass the conformance suite in [`../../tests/`](../../tests/) with identical results: the file cases, the pack cases, the pass cases, and the conversion cases, whose expected `.mncf` text the Java converter writes byte for byte.
 
 ## Build and test
 
@@ -73,6 +74,26 @@ for (CheatResult c : ev.cheats()) {
 
 Pack pack = PackReader.read(zipBytes, trust);           // pack.usable(), pack.files() with status()
 ```
+
+Running the cheats pass by pass:
+
+```java
+Engine engine = new Engine(file, runtime, choices, 60);   // 60 passes per second, for timed cheats
+engine.switchCheat("speed", true);                        // between passes: what the player does
+engine.setValue("money.count", 5000);
+engine.hold("ZL");                                        // the buttons held now
+engine.press("ZL+R");                                     // a press shorter than a pass
+Pass pass = engine.tick(memory, null);                    // one pass; or tick(memory, seconds) with a clock
+for (Change c : pass.changes()) {
+    // c.kind(): patch, restore, hook, unhook (code, all in one stop), then write and raw
+    // c.address(), c.bytes(), c.action(), c.value(), c.cheat()
+}
+pass.cheats();                                            // every cheat's state after the pass
+pass.shown();                                             // what the monitors read, by cheat
+List<Change> back = engine.stop();                        // puts back every place the cheats changed
+```
+
+The engine reads guest memory only through the `GuestMemory` it is given and changes nothing itself. One thread calls it.
 
 Writing and converting:
 
