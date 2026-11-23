@@ -1,0 +1,2 @@
+// The Java reader of the .mncf format, as a build of its own that other builds can include.
+rootProject.name = 'mncf'
