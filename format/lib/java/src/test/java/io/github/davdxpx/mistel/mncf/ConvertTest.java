@@ -81,7 +81,10 @@ public final class ConvertTest {
         Check.equal("Data", f.cheat("heap-value").group());
         Check.equal("A", f.cheat("hold-a").hold());
         Check.equal("B", f.cheat("cave-jump").hold());
-        Check.equal("ZL", f.cheat("speed").hold());
+        Cheat speed = f.cheat("speed");      // patches without an else branch: the patch stays after the press
+        Check.isTrue(speed.hold() == null, "an action has no hold");
+        Check.equal("action", speed.run());
+        Check.equal("ZL", speed.press());
         Check.equal("Items", f.cheat("cave-jump").group());
         Check.isTrue(f.cheat("speed").group() == null, "the group ended before Speed");
         Check.equal(Collections.singletonList("master-setup"), f.cheat("money").requires());
@@ -90,6 +93,7 @@ public final class ConvertTest {
         Map<String, Object> origin = new LinkedHashMap<>();
         origin.put("format", "atmosphere");
         origin.put("name", "example.zip");
+        origin.put("site", "example.org");
         Check.equal(origin, f.origin());
         Check.equal(Arrays.asList("raw/1", "arm64-imm/1"), f.optionalExtensions());
         Check.isTrue(conv.text().contains("find = \"68 12 00 B9\""), "a pattern in the text");
@@ -114,6 +118,10 @@ public final class ConvertTest {
     public static void testAuthors() throws Exception {
         Check.equal(Arrays.asList("Some Forum", "Ann", "Bo"), Converter.authorsOf(Arrays.asList("credits: Some Forum",
                 "www.example.org", "This set is created by Ann & Bo, enjoy!")));
+        Check.equal(Arrays.asList("Ann (Some Forum)", "Bo (Other)", "Cy (a forum)"),
+                Converter.authorsOf(Arrays.asList("Cheats by Ann on Some Forum & Bo @ Other", "by Cy (a forum)")));
+        Check.equal("example.org", Converter.siteOf(Arrays.asList("credits: Some Forum", "https://www.Example.org/cheats")));
+        Check.isTrue(Converter.siteOf(Collections.singletonList("credits: Some Forum")) == null, "no site");
         String plain = "[Money]\n04100000 00000010 00000001\n";
         Converter.Options player = options().authors(Collections.singletonList("Player"));
         MncfFile f = Mncf.load(Fixtures.utf8(Converter.fromAtmosphere(source(null, plain, Synthetic.BUILD_ID, "1.0.0"),
@@ -227,9 +235,7 @@ public final class ConvertTest {
         }
         Converter.Export core = Converter.toAtmosphere(f, "1.0.0", mod, "core");
         cmp = Converter.compare(Synthetic.CHEATS, core.text(), true);
-        // Speed's button block has no else branch: in Atmosphère its patch stays after the buttons
-        // are released, while .mncf restores code on release, so the code written back restores it too.
-        Check.equal(Collections.singletonList("Speed"), cmp.differ());
+        Check.equal(Collections.<String>emptyList(), cmp.differ());
         Check.equal("raw", core.written().get("loop"));
         Check.equal("core", core.written().get("money"));
         Check.throwsWith(IllegalArgumentException.class, "no build", new Check.Action() {

@@ -142,8 +142,8 @@ public final class MncfFile {
     }
 
     /**
-     * Returns the source a converter read the file from, unmodifiable: its "format" and maybe
-     * its "name". Null when the file was not converted.
+     * Returns the source a converter read the file from, unmodifiable: its "format", and maybe
+     * its "name" and the "site" it came from. Null when the file was not converted.
      */
     public Map<String, Object> origin() {
         return origin;

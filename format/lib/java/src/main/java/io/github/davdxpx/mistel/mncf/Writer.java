@@ -57,7 +57,7 @@ public final class Writer {
         INLINE.put("value", Values.list("at", "type"));
         INLINE.put("encode", Values.list("insn", "width", "rd", "value"));
         INLINE.put("asm", Values.list("expect", "bytes"));
-        INLINE.put("origin", Values.list("format", "name"));
+        INLINE.put("origin", Values.list("format", "name", "site"));
         INLINE.put("extensions", Values.list("required", "optional"));
         INLINE.put("modules", Collections.<String>emptyList());
     }

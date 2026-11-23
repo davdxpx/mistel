@@ -52,8 +52,12 @@ public final class Converter {
             + caseless("credits?") + SPACE + "*[:=]" + SPACE + "*([^\\n]+)");
     private static final String DECORATION_CHARS = "[" + SPACE_CHARS + "\\-=*~#_.:+<>|]";
     private static final Pattern DECORATION = Pattern.compile("^" + DECORATION_CHARS + "+|" + DECORATION_CHARS + "+" + END);
-    private static final Pattern NAME_END = Pattern.compile("[,!;(|]");
-    private static final Pattern NAME_SPLIT = Pattern.compile(SPACE + "+&" + SPACE + "+|" + SPACE + "+and" + SPACE + "+|/");
+    private static final Pattern NAME_END = Pattern.compile("[,!;|]");
+    private static final Pattern NAME_SPLIT = Pattern.compile(SPACE + "+&" + SPACE + "+|" + SPACE + "+and" + SPACE + "+");
+    private static final Pattern PLATFORM = Pattern.compile("([^\\n]+?)" + SPACE + "*(?:" + SPACE + "(?:"
+            + caseless("on|at|from") + ")" + SPACE + "|@|\\()" + SPACE + "*([^\\n]+?)\\)?");
+    private static final Pattern SITE = Pattern.compile(
+            "(?:https?://)?(?:www\\.)?([A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,})");
     private static final long[] GROUP_END = {0x20000001L};
 
     private Converter() {
@@ -212,6 +216,7 @@ public final class Converter {
         final String key;
         final Rep rep;
         String hold;
+        String press;            // buttons of a block that patches without an else branch: run = "action"
         List<Op> ops = new ArrayList<>();
         Map<String, Object> values = new LinkedHashMap<>();
         final Map<String, Object> raw = new LinkedHashMap<>();
@@ -270,7 +275,11 @@ public final class Converter {
         return s.substring(a, b);
     }
 
-    /** Returns the names that credit lines give: what follows "by" or "credits:", up to a comma or the end. */
+    /**
+     * Returns the people that credit lines name: what follows "by" or "credits:", up to a comma
+     * or the end. A person named with the platform they posted on ("Ann on Some Forum", "Ann @
+     * Some Forum") is written "Ann (Some Forum)".
+     */
     public static List<String> authorsOf(List<String> credits) {
         List<String> names = new ArrayList<>();
         for (String line : credits) {
@@ -283,12 +292,27 @@ public final class Converter {
             text = Py.strip(cut.find() ? text.substring(0, cut.start()) : text);
             for (String name : NAME_SPLIT.split(text, -1)) {
                 name = stripChars(name, " .");
-                if (!name.isEmpty() && !LINK.matcher(name).find() && !names.contains(name)) {
+                Matcher on = PLATFORM.matcher(name);
+                if (on.matches()) {
+                    name = Py.strip(on.group(1)) + " (" + stripChars(on.group(2), " .()") + ")";
+                }
+                if (!name.isEmpty() && !LINK.matcher(name).lookingAt() && !names.contains(name)) {
                     names.add(name);
                 }
             }
         }
         return names;
+    }
+
+    /** Returns the website the credit lines name, as a lower-case domain without www, or null. */
+    public static String siteOf(List<String> credits) {
+        for (String line : credits) {
+            Matcher m = SITE.matcher(line);
+            if (m.find()) {
+                return m.group(1).toLowerCase(Locale.ROOT);
+            }
+        }
+        return null;
     }
 
     // One file
@@ -556,6 +580,7 @@ public final class Converter {
                     c.ops = new ArrayList<>();
                     c.values = new LinkedHashMap<>();
                     c.hold = null;
+                    c.press = null;
                     rep.why = u.why;
                     rep.outcome = CheatReport.RAW;
                     rep.patterns = 0;
@@ -578,9 +603,10 @@ public final class Converter {
             boolean values) throws Atmosphere.Unclear {
         Rep rep = c.rep;
         String key = c.key;
+        String buttons = null;
         if (d.keys != 0) {
-            c.hold = Atmosphere.keysToButtons(d.keys);
-            if (c.hold == null) {
+            buttons = Atmosphere.keysToButtons(d.keys);
+            if (buttons == null) {
                 throw new Atmosphere.Unclear("a button mask with bits that have no name");
             }
         }
@@ -636,6 +662,17 @@ public final class Converter {
         }
         if (patches.isEmpty() && ops.isEmpty()) {
             throw new Atmosphere.Unclear("it writes only what is already there");
+        }
+        if (buttons != null) {
+            if (d.released == null && !patches.isEmpty()) {
+                // Atmosphère patches at the press and leaves the patch when the buttons are let go: an action.
+                if (!ops.isEmpty()) {
+                    throw new Atmosphere.Unclear("a button block without an else branch that patches code and writes data");
+                }
+                c.press = buttons;
+            } else {
+                c.hold = buttons;
+            }
         }
         List<Op> all = new ArrayList<>();
         for (Map<String, Object> p : patches) {
@@ -728,7 +765,8 @@ public final class Converter {
     }
 
     private static boolean mergeable(CheatState a, CheatState b) {
-        return java.util.Objects.equals(a.hold, b.hold) && sameValues(a.values, b.values) && shape(a.ops).equals(shape(b.ops));
+        return java.util.Objects.equals(a.hold, b.hold) && java.util.Objects.equals(a.press, b.press)
+                && sameValues(a.values, b.values) && shape(a.ops).equals(shape(b.ops));
     }
 
     /** Python's == for the value tables: numbers compare by value. */
@@ -889,6 +927,10 @@ public final class Converter {
             } else if (masterOf.get(first.key) != null) {
                 t.put("requires", new ArrayList<Object>(Collections.singletonList(ids.get(masterOf.get(first.key)))));
             }
+            if (first.press != null && !first.press.isEmpty()) {
+                t.put("run", "action");
+                t.put("press", first.press);
+            }
             if (first.hold != null && !first.hold.isEmpty()) {
                 t.put("hold", first.hold);
             }
@@ -928,6 +970,10 @@ public final class Converter {
         Map<String, Object> origin = table("format", "atmosphere");
         if (nonEmpty(options.origin)) {
             origin.put("name", options.origin);
+        }
+        String site = siteOf(report.credits);
+        if (site != null && !site.isEmpty()) {
+            origin.put("site", site);
         }
         doc.put("origin", origin);
         List<Object> exts = new ArrayList<>();
@@ -1135,11 +1181,11 @@ public final class Converter {
     }
 
     private static List<Long> coreWords(Cheat c, String buildKey, CodeModule module) throws Atmosphere.Unclear {
-        if (!c.run().equals("on")) {
+        if (!c.run().equals("on") && !c.run().equals("action")) {
             throw new Atmosphere.Unclear("run = \"" + c.run() + "\" has no Atmosph\u00E8re form");
         }
-        if (c.toggle() != null || c.press() != null) {
-            throw new Atmosphere.Unclear("toggle and press buttons have no Atmosph\u00E8re form");
+        if (c.toggle() != null) {
+            throw new Atmosphere.Unclear("toggle buttons have no Atmosph\u00E8re form");
         }
         List<Atmosphere.Store> stores = new ArrayList<>();
         List<Atmosphere.Store> restores = new ArrayList<>();
@@ -1219,7 +1265,19 @@ public final class Converter {
             body = words;
         }
         List<Long> words;
-        if (c.hold() != null) {
+        if (c.run().equals("action")) {
+            boolean writes = false;
+            for (Model.Op op : c.ops()) {
+                writes |= op instanceof Model.Write;
+            }
+            if (c.hold() != null || writes) {
+                throw new Atmosphere.Unclear("an action with writes or hold has no Atmosph\u00E8re form");
+            }
+            words = new ArrayList<>();
+            words.add(0x80000000L | Atmosphere.keyMask(c.press()));
+            words.addAll(body);
+            words.add(0x20000000L);
+        } else if (c.hold() != null) {
             words = new ArrayList<>();
             words.add(0x80000000L | Atmosphere.keyMask(c.hold()));
             words.addAll(body);

@@ -172,12 +172,12 @@ final class Schema {
         if (doc.containsKey("origin")) {
             Object o = doc.get("origin");
             if (!(o instanceof Map) || !(map(o).get("format") instanceof String)
-                    || !(get(map(o), "name", "") instanceof String)) {
+                    || !(get(map(o), "name", "") instanceof String) || !(get(map(o), "site", "") instanceof String)) {
                 throw new MncfException("schema:origin",
-                        "`origin` must be a table with a `format` string and maybe a `name`");
+                        "`origin` must be a table with a `format` string and maybe `name` and `site` strings");
             }
             for (String k : map(o).keySet()) {
-                if (!k.equals("format") && !k.equals("name")) {
+                if (!k.equals("format") && !k.equals("name") && !k.equals("site")) {
                     warnings.add("unknown-key:origin." + k);
                 }
             }
