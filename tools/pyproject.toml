@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mistel"
+version = "1.0.0"
+description = "Tools for .mncf cheat files: check, convert, pattern, sign, verify, pack and keygen"
+readme = "README.md"
+license = { text = "GPL-3.0" }
+requires-python = ">=3.11"
+dependencies = ["mncf"]
+
+[project.optional-dependencies]
+asm = ["capstone>=5"]
+fast = ["lz4>=4"]
+
+[project.scripts]
+mistel = "mistel.cli:main"
+
+[tool.setuptools]
+packages = ["mistel"]

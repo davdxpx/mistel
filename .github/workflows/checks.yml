@@ -56,3 +56,22 @@ jobs:
           echo "D8=$(ls -d "$sdk"/build-tools/*/ | sort -V | tail -n 1)d8" >> "$GITHUB_ENV"
       - name: Build, unit tests and conformance suite
         run: sh format/lib/java/build.sh
+
+  tools:
+    name: mistel tools
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Tests without the optional packages
+        run: python -m unittest discover -s tools/tests -v
+      - name: Tests with Capstone and lz4
+        run: |
+          python -m pip install capstone lz4
+          python -m unittest discover -s tools/tests -v
+          python -m unittest discover -s format/lib/python/tests -v
