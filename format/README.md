@@ -26,7 +26,7 @@ The complete schema is the spec.
 
 | Folder | What | Status |
 |---|---|---|
-| [`spec/`](spec/) | The specification, versioned (`mncf/1`) | In progress |
+| [`spec/`](spec/) | The specification, versioned: [`mncf-1.md`](spec/mncf-1.md) for `mncf/1` | Draft |
 | `readers/<language>/` | Reader libraries: parse, check, resolve a file for one build | Planned, Java and Python first |
 
 ## Versions and extensions
