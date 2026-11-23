@@ -12,14 +12,14 @@ No cheats for real games in this repository either. Tests use made-up games: a m
 
 ## Before you start
 
-- **Agree on the scope first** for anything large: a new part, a new engine adapter, a change to the `.mcf` format, or more than about 1,000 lines. Open an issue and say what you want to build and why.
-- **The `.mcf` format changes only through its spec.** A change to the format is first a change to [`format/spec/`](format/spec/), with the version rule it follows, and then the readers in every language in the same pull request.
+- **Agree on the scope first** for anything large: a new part, a new engine adapter, a change to the `.mncf` format, or more than about 1,000 lines. Open an issue and say what you want to build and why.
+- **The `.mncf` format changes only through its spec.** A change to the format is first a change to [`format/spec/`](format/spec/), with the version rule it follows, and then the readers in every language in the same pull request.
 - Prefer a rule that holds for every game, or every game on one engine, to a rule for one game. Fix a bug at its cause, not by hiding the symptom.
 
 ## A pull request
 
 - **One work package per pull request**, on a branch from the current `main`. Rebase on `main` instead of merging it in. Split a feature into several pull requests only when each part stands on its own and the split makes the review easier; a series of small parts for one feature reads as noise.
-- **Commits** say what changed and why, in plain English sentences: the need or the symptom, the cause, the change, and what was checked. When there is an issue, the title ends with its number, for example `Read the pattern table of an .mcf file (#12)`.
+- **Commits** say what changed and why, in plain English sentences: the need or the symptom, the cause, the change, and what was checked. When there is an issue, the title ends with its number, for example `Read the pattern table of an .mncf file (#12)`.
 - **The author is the person who sends the change.** No AI tool is ever named as an author or co-author, in a `Co-Authored-By` trailer, as "Generated with", or anywhere else in commits, the pull request text, comments or code. `scripts/check-publish.sh` refuses such commits.
 - **Source only.** No binaries: no build output, no `.so`, `.apk` or `.jar`, no screenshots in the repository. A test that needs a binary file makes it itself.
 - **No private data** in any file, commit or picture: no local paths, home folders, LAN or adb addresses, device serials, personal e-mail addresses.

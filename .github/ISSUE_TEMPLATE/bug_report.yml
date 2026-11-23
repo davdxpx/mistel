@@ -7,7 +7,7 @@ body:
     attributes:
       label: Part
       options:
-        - Cheat format (.mcf) or a reader
+        - Cheat format (.mncf) or a reader
         - Tools (mistel command)
         - Muninn
         - An engine adapter

@@ -4,7 +4,7 @@ Mistel reads files that people share, checks signatures, and writes into a runni
 
 ## What to report
 
-- A file that makes a reader crash, hang, or read or write outside what it should, in any `.mcf` reader or in the `mistel` tools.
+- A file that makes a reader crash, hang, or read or write outside what it should, in any `.mncf` reader or in the `mistel` tools.
 - A way to make a signature check pass for a file that was not signed, or that was changed after signing.
 - A cheat or mod that the checks should have stopped from writing somewhere: past its region, over code the emulator rewrote, or after a failed check of the original bytes.
 

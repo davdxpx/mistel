@@ -17,6 +17,6 @@
 
 ## Docs
 
-- [ ] The part's `README.md`, and the `.mcf` spec for a format change, say what changed
+- [ ] The part's `README.md`, and the `.mncf` spec for a format change, say what changed
 - [ ] No game files, keys, cheats for real games or private data in the change or the pictures
 - [ ] Source only: no binaries; the branch starts from the current `main`

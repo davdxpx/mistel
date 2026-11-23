@@ -1,6 +1,6 @@
-# Mistel Cheat Format (`.mcf`)
+# Mistel Native Cheat Format (`.mncf`)
 
-One cheat file per game, for all of its versions and every way it runs. An emulator, a native port or a recompiled PC build that reads `.mcf` files knows from the file itself what each cheat is, what it may change and whether it fits what runs, so that it never has to guess from raw opcodes.
+One cheat file per game, for all of its versions and every way it runs. An emulator, a native port or a recompiled PC build that reads `.mncf` files knows from the file itself what each cheat is, what it may change and whether it fits what runs, so that it never has to guess from raw opcodes.
 
 The format is made for the new era of native games: recompilations that turn a console game into a native program, and compatibility layers that run a game's own code natively, as nxnative does on Android. It is not tied to one console, one CPU or one runtime, and grows through versioned extensions instead of new formats.
 
@@ -26,11 +26,11 @@ The complete schema is the spec.
 
 | Folder | What | Status |
 |---|---|---|
-| [`spec/`](spec/) | The specification, versioned (`mistel/1`) | In progress |
+| [`spec/`](spec/) | The specification, versioned (`mncf/1`) | In progress |
 | `readers/<language>/` | Reader libraries: parse, check, resolve a file for one build | Planned, Java and Python first |
 
 ## Versions and extensions
 
-A file starts with its format version, `format = "mistel/1"`. Within one major version, a newer reader reads every older file. A change that breaks this is a new major version.
+A file starts with its format version, `format = "mncf/1"`. Within one major version, a newer reader reads every older file. A change that breaks this is a new major version.
 
 The core stays small: the target, the checks, the writes, the values and the signature. Everything else is a named, versioned extension. A file lists the extensions it needs and a reader says which it supports, so a reader that lacks one turns only the cheats that use it off, with the reason, and the rest of the file still works.

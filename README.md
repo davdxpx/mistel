@@ -8,8 +8,8 @@ A mistletoe grows into a host tree and lives from it. Mistel grows into a game's
 
 | Part | Folder | What it does | Status | License |
 |---|---|---|---|---|
-| Mistel Cheat Format (`.mcf`) | [`format/`](format/) | One cheat file per game for all its versions and every way it runs, made for native recompilations and native runtimes on any platform: guest memory and native code as separate address spaces, byte patterns instead of fixed addresses, a check of the original bytes before every write, typed values, groups, presets, extensions and signatures | Spec in progress | MIT |
-| Tools | [`tools/`](tools/) | The `mistel` command for authors: check a file, convert Atmosphère cheats, make patterns, port cheats to a new version, sign and pack | Planned | GPL-3.0 |
+| Mistel Native Cheat Format (`.mncf`) | [`format/`](format/) | One cheat file per game for all its versions and every way it runs, made for native recompilations and native runtimes on any platform: guest memory and native code as separate address spaces, byte patterns instead of fixed addresses, a check of the original bytes before every write, typed values, groups, presets, extensions and signatures | Spec in progress | MIT |
+| Tools | [`tools/`](tools/) | The `mistel` command for authors: check a file, convert cheats from other formats, make patterns, port cheats to a new version, sign and pack | Planned | GPL-3.0 |
 | Muninn | [`muninn/`](muninn/) | Analysis: memory scans, pointer paths, call traces and watchpoints, the ground work for cheats, signatures and adapters | Planned | GPL-3.0 |
 | Adapters | [`adapters/`](adapters/) | What Mistel knows about a game engine, so that one finding holds for every game on it. Unreal Engine 4.23 and later first | Planned | GPL-3.0 |
 | SDK | [`sdk/`](sdk/) | Helper code in C for companions and code mods: hooks, a mailbox to the launcher, and guards (pointer and vtable checks, state gates, build gates, crash-loop quarantine) | Planned | GPL-3.0 |
@@ -21,19 +21,19 @@ How the parts fit together: [docs/architecture.md](docs/architecture.md).
 
 - No game files, keys, firmware or anything extracted from a game, in this repository or in an issue. Mistel works on the dump folder that a player made from their own console and keeps everything it extracts there.
 - Nothing that asks for keys or explains how to obtain games.
-- No cheats for real games in this repository. Mistel's own cheat packs are signed with Mistel's key and published separately; an emulator that reads `.mcf` files only loads what the player brings.
+- No cheats for real games in this repository. Mistel's own cheat packs are signed with Mistel's key and published separately; an emulator that reads `.mncf` files only loads what the player brings.
 
 ## Used by
 
-- **Peanuts Native** (planned): reads `.mcf` files, checks their signatures against Mistel's public key and shows the result.
+- **Peanuts Native** (planned): reads `.mncf` files, checks their signatures against Mistel's public key and shows the result.
 
-Other projects are welcome to read `.mcf` too. That is why the format and its readers are MIT.
+Other projects are welcome to read `.mncf` too. That is why the format and its readers are MIT.
 
 ## License
 
 Two licenses, by folder:
 
-- [`format/`](format/): the `.mcf` spec and the reader libraries, under the [MIT License](format/LICENSE), so that any emulator can read the format, whatever its own license.
+- [`format/`](format/): the `.mncf` spec and the reader libraries, under the [MIT License](format/LICENSE), so that any emulator can read the format, whatever its own license.
 - Everything else: the [GNU General Public License v3.0](LICENSE).
 
 ## Contributing
