@@ -6,6 +6,6 @@ The specification of the Mistel Native Cheat Format lives here, one file per maj
 |---|---|---|
 | [`mncf-1.md`](mncf-1.md) | `mncf/1` | Draft |
 
-Until a version is merged as final, nothing in Mistel reads or writes `.mncf` files of it, and that version can still change.
+A draft can still change. The libraries in [`../lib/`](../lib/) and the conformance suite in [`../tests/`](../tests/) follow it.
 
-A change to the format starts here ([CONTRIBUTING.md](../../CONTRIBUTING.md#before-you-start)): the spec first, with the version rule it follows, then every reader in the same pull request.
+A change to the format starts here ([CONTRIBUTING.md](../../CONTRIBUTING.md#before-you-start)): the spec first, with the version rule it follows, then every reader and the conformance cases that show the change, in the same pull request.
