@@ -238,5 +238,73 @@ class PackTest(unittest.TestCase):
             mncf.TrustList().trust('x', base64.b64decode('AAAA'))
 
 
+
+class LimitsTest(unittest.TestCase):
+    def zipped(self, entries, method=zipfile.ZIP_DEFLATED):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', method) as z:
+            for name, data in entries:
+                z.writestr(name, data)
+        return buf.getvalue()
+
+    def code(self, call):
+        with self.assertRaises(mncf.MncfError) as e:
+            call()
+        return e.exception.code
+
+    def test_file_size(self):
+        big = FILE + b'#' * (mncf.MAX_FILE - len(FILE)) + b'\n'
+        self.assertEqual(self.code(lambda: mncf.load(big)), 'size')
+
+    def test_pack_entry_that_inflates_past_the_limit(self):
+        bomb = bytes(mncf.MAX_FILE + 1)              # zeros deflate to a few kilobytes
+        pack = self.zipped([('pack.toml', bomb)])
+        self.assertLess(len(pack), 100_000)
+        self.assertEqual(self.code(lambda: read_pack(pack)), 'size')
+
+    def test_pack_entries_and_total(self):
+        many = self.zipped([(f'f{i}.mncf', b'') for i in range(4097)] + [('pack.toml', b'')], zipfile.ZIP_STORED)
+        self.assertEqual(self.code(lambda: read_pack(many)), 'size')
+        import mncf.pack as pack_module
+        digest = hashlib.sha256(FILE).hexdigest()
+        manifest = ('format = "mncf-pack/1"\nname = "P"\n' + ''.join(
+            f'\n[[file]]\npath = "f{i}.mncf"\nsha256 = "{digest}"\n' for i in range(3))).encode()
+        pack = self.zipped([('pack.toml', manifest)] + [(f'f{i}.mncf', FILE) for i in range(3)])
+        saved = pack_module.MAX_TOTAL
+        pack_module.MAX_TOTAL = len(manifest) + 2 * len(FILE)
+        try:
+            self.assertEqual(self.code(lambda: read_pack(pack)), 'size')
+        finally:
+            pack_module.MAX_TOTAL = saved
+        self.assertEqual([f.status for f in read_pack(pack).files], ['ok', 'ok', 'ok'])
+
+
+class TrustListTest(unittest.TestCase):
+    pub = bytes.fromhex(RFC8032[0][1])
+
+    def text(self, body):
+        return 'format = "mncf-keys/1"\n' + body
+
+    def test_read(self):
+        b64 = base64.b64encode(self.pub).decode()
+        trust = mncf.read_trust_list(self.text(f'\n[[key]]\nname = "One"\npublic = "{b64}"\nid = "{mncf.key_id(self.pub)}"\n'
+                                               '\n[[revoked]]\nid = "39f713d0a644253f"\n'))
+        self.assertEqual(trust.keys(mncf.key_id(self.pub)), [('One', self.pub)])
+        self.assertEqual(trust.revoked, {'39f713d0a644253f'})
+        self.assertEqual(mncf.read_trust_list(self.text('')).revoked, set())
+
+    def test_errors(self):
+        b64 = base64.b64encode(self.pub).decode()
+        for text, code in ((f'[[key]]\nname = "One"\npublic = "{b64}"\n', 'format'),
+                           (self.text(f'\n[[key]]\nname = "One"\npublic = "{b64[:-2]}"\n'), 'schema:key'),
+                           (self.text(f'\n[[key]]\npublic = "{b64}"\n'), 'schema:key'),
+                           (self.text(f'\n[[key]]\nname = "One"\npublic = "{b64}"\nid = "0000000000000000"\n'),
+                            'schema:key'),
+                           (self.text('\n[[revoked]]\nid = "ABC"\n'), 'schema:revoked')):
+            with self.assertRaises(mncf.MncfError) as e:
+                mncf.read_trust_list(text)
+            self.assertEqual(e.exception.code, code, text)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,6 @@
 # The Mistel Native Cheat Format, version 1
 
-Version line: `format = "mncf/1"`. File extension: `.mncf`. Status: **draft**. Until this spec is merged, the format can still change.
+Version line: `format = "mncf/1"`. File extension: `.mncf`. Status: **draft**. The libraries in [`../lib/`](../lib/) and the conformance suite in [`../tests/`](../tests/) follow it. Until it is marked final, the format can still change.
 
 ## 1. Purpose
 
@@ -510,7 +510,26 @@ A file with several signature lines gets one result: `invalid` if any line is in
 
 A signature is optional. It is a mark of origin for files someone wants to vouch for, such as a curated pack; a runtime MUST NOT warn about, hide or treat differently a file only because it is unsigned. Only `verified` gets a mark in the runtime's interface.
 
-Mistel publishes its public keys and its revocation list in `docs/keys.md`. A signature says who made a file and that it is unchanged. It does not say that the cheats are harmless; the checks of section 11 do that.
+A runtime keeps the keys it trusts and the keys it no longer trusts in a **trust list**, a TOML file of its own format:
+
+```toml
+format = "mncf-keys/1"
+
+[[key]]
+name = "Example signer"
+public = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+id = "21fe31dfa154a261"
+
+[[revoked]]
+id = "39f713d0a644253f"
+```
+
+- `format = "mncf-keys/1"` is the first key.
+- Each `[[key]]` has the `name` a runtime shows, and `public`, the 32-byte public key in standard base64. `id` is optional; when it is there, it MUST be the key id of `public`.
+- Each `[[revoked]]` has the `id` of a key that is no longer trusted. It is 16 lower-case hexadecimal digits.
+- A trust list that breaks these rules is refused as a whole, with the codes of Appendix D (`format`, `schema:key`, `schema:revoked`).
+
+Mistel publishes its public keys and its revocation list as such a file, `docs/keys.toml`, and explains them in `docs/keys.md`. A signature says who made a file and that it is unchanged. It does not say that the cheats are harmless; the checks of section 11 do that.
 
 ## 13. Packs
 
@@ -758,6 +777,7 @@ A file with one of these errors is not used at all. The reader says the code and
 
 | Code | Meaning |
 |---|---|
+| `size` | More than 16 MiB (16,777,216 bytes) |
 | `encoding` | Not UTF-8, a byte order mark, or a CR character (section 2) |
 | `toml` | Not TOML 1.0, a date or time value, or tables and arrays nested deeper than 128 levels |
 
@@ -770,7 +790,9 @@ A pack with one of these errors is not used at all:
 
 | Code | Meaning |
 |---|---|
-| `zip` | Not a ZIP file, or two entries of the same name |
+| `zip` | Not a ZIP file, two entries of the same name, or an entry that is neither stored nor deflated, or is encrypted |
+| `size` | More than 4,096 entries, an entry of more than 16 MiB (whatever its header says), or more than 256 MiB in all the entries a reader reads |
+
 | `manifest` | No `pack.toml` at the root, or it is not UTF-8 TOML with LF line ends |
 | `format` | `format` is not the first key of the manifest, or not `"mncf-pack/1"` |
 | `schema:<key>` | A key of the manifest is missing or has the wrong type or form |

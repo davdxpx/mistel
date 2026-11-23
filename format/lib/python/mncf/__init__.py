@@ -14,10 +14,11 @@ from .evaluate import CAPABILITIES, Choices, CheatResult, Evaluation, Module, Re
     identify
 from .model import MncfError, MncfFile, SignatureResult
 from .schema import KNOWN_EXTENSIONS, build_file
-from .signature import TrustList, key_id
+from .signature import TrustList, key_id, read_trust_list
 
 __all__ = ['load', 'evaluate', 'identify', 'find_all', 'Runtime', 'Module', 'Choices', 'Evaluation', 'CheatResult',
-           'ResolvedOp', 'MncfError', 'MncfFile', 'SignatureResult', 'TrustList', 'key_id', 'KNOWN_EXTENSIONS',
+           'ResolvedOp', 'MncfError', 'MncfFile', 'SignatureResult', 'TrustList', 'key_id', 'read_trust_list',
+           'KNOWN_EXTENSIONS',
            'CAPABILITIES', 'ed25519', 'encode', 'platforms', 'signature']
 
 
@@ -35,6 +36,7 @@ def decode(data):
 
 
 MAX_DEPTH = 128
+MAX_FILE = 16 * 1024 * 1024        # bytes of one file, and of one entry of a pack
 
 
 def _depth_and_dates(v, depth=0):
@@ -63,6 +65,8 @@ def parse_toml(text):
 def load(data, trust=None):
     """Reads and checks an .mncf file. Raises MncfError when the file cannot be used at all."""
     data = bytes(data)
+    if len(data) > MAX_FILE:
+        raise MncfError('size', f'the file has more than {MAX_FILE} bytes')
     text = decode(data)
     doc = parse_toml(text)
     sig = signature.check(data, trust)
