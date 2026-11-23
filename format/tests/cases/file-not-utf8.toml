@@ -1,0 +1,8 @@
+about = "A byte sequence that is not UTF-8 makes the file unusable."
+hex = "66 6F 72 6D 61 74 20 3D 20 22 6D 6E 63 66 2F 31 22 0A 6E 61 6D 65 20 3D 20 22 FF 22 0A"
+
+[env]
+platform = "switch"
+
+[expect]
+error = "encoding"

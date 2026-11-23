@@ -1,0 +1,8 @@
+about = "A path that leaves the pack is refused."
+
+[zip]
+"pack.toml" = "files/pack-bad-path.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+error = "path:../example.mncf"

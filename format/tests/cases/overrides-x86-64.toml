@@ -1,0 +1,91 @@
+about = "Override stubs on x86-64, on the pc platform."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "pc"
+id = "steam:123456"
+
+[builds."1.0"]
+modules = { "game.exe" = "sha256:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08" }
+
+[[cheat]]
+id = "five"
+name = "five"
+  [[cheat.override]]
+  function = { module = "game.exe", find = "55 48 89 E5 48 83 EC 20" }
+  action = "return"
+  value = 5
+  expect = "55 48 89 E5 48 83 EC 20"
+
+[[cheat]]
+id = "minus-two"
+name = "minus-two"
+  [[cheat.override]]
+  function = { module = "game.exe", find = "55 48 89 E5 48 83 EC 20" }
+  action = "return"
+  value = -2
+  expect = "55 48 89 E5 48 83 EC 20"
+
+[[cheat]]
+id = "wide"
+name = "wide"
+  [[cheat.override]]
+  function = { module = "game.exe", find = "55 48 89 E5 48 83 EC 20" }
+  action = "return"
+  value = 0x100000000
+  expect = "55 48 89 E5 48 83 EC 20"
+
+[[cheat]]
+id = "skip"
+name = "skip"
+  [[cheat.override]]
+  function = { module = "game.exe", find = "55 48 89 E5 48 83 EC 20" }
+  action = "skip"
+  expect = "55 48 89 E5 48 83 EC 20"
+'''
+
+[env]
+platform = "pc"
+arch = "x86-64"
+
+[env.modules."game.exe"]
+id = "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+base = 0x140000000
+size = 0x1000
+code = [0x0, 0x1000]
+bytes = [
+  { at = 0x100, hex = "55 48 89 E5 48 83 EC 20 C3" },
+]
+
+[expect]
+build = "1.0"
+
+[expect.cheat.five]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", address = 0x140000100, bytes = "B8 05 00 00 00 C3" },
+]
+
+[expect.cheat.minus-two]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", bytes = "48 C7 C0 FE FF FF FF C3" },
+]
+
+[expect.cheat.wide]
+state = "refused"
+reason = "invalid:override.expect"
+
+[expect.cheat.skip]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", bytes = "C3" },
+]

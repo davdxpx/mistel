@@ -1,0 +1,23 @@
+about = "A platform that Appendix A does not list makes the file unusable."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "dreamcast"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[expect]
+error = "platform"

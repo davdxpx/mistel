@@ -1,0 +1,8 @@
+about = "CR LF line ends make the file unusable: line ends are LF only."
+text = "format = \"mncf/1\"\r\nname = \"x\"\r\n"
+
+[env]
+platform = "switch"
+
+[expect]
+error = "encoding"

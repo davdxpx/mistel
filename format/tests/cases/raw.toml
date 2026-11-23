@@ -1,0 +1,157 @@
+about = "raw/1: code of another format, applied for its build where the cheat has no core operations."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "raw-only"
+name = "raw-only"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.2"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "other-build"
+name = "other-build"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.3"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "raw-and-core"
+name = "raw-and-core"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.2"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "two-builds"
+name = "two-builds"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.3"
+  code = """
+04000000 00000100 AAAAAAAA
+"""
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.2"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "bad-code"
+name = "bad-code"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.2"
+  code = """
+0400000 XYZ
+"""
+
+[[cheat]]
+id = "bad-build"
+name = "bad-build"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "2.0.0"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "other-syntax"
+name = "other-syntax"
+  [[cheat.raw]]
+  syntax = "x-gecko"
+  build = "1.0.2"
+  code = """
+anything
+"""
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.raw-only]
+state = "off"
+reason = ""
+uses = "raw"
+ops = [
+  { kind = "raw", syntax = "atmosphere", build = "1.0.2", code = "04000000 00000100 B9001269\n" },
+]
+
+[expect.cheat.other-build]
+state = "refused"
+reason = "build-unknown"
+
+[expect.cheat.raw-and-core]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100 },
+]
+
+[expect.cheat.two-builds]
+state = "off"
+reason = ""
+uses = "raw"
+ops = [
+  { kind = "raw", build = "1.0.2" },
+]
+
+[expect.cheat.bad-code]
+state = "refused"
+reason = "invalid:raw.code"
+
+[expect.cheat.bad-build]
+state = "refused"
+reason = "invalid:raw.build"
+
+[expect.cheat.other-syntax]
+state = "refused"
+reason = "extension-missing:raw/1"

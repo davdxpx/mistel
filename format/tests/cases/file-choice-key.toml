@@ -1,0 +1,31 @@
+about = "Keys of a choice list are whole numbers in decimal or with 0x, and nothing else."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[choices.items]
+" 1" = "Potion"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+error = "schema:choices"

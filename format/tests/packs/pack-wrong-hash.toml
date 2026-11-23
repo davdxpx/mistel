@@ -1,0 +1,9 @@
+about = "A file whose bytes differ from the manifest is not applied."
+
+[zip]
+"pack.toml" = "files/pack-wrong-hash.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+signature = "unsigned"
+files = { "example.mncf" = "hash" }

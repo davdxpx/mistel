@@ -1,0 +1,8 @@
+format = "mncf-pack/1"
+name = "Example pack"
+authors = ["someone"]
+file_version = "2"
+
+[[file]]
+path = "example.mncf"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"

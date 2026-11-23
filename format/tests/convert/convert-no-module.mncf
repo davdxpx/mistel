@@ -1,0 +1,209 @@
+format = "mncf/1"
+name = "Example"
+authors = ["someone"]
+about = "Credits in the source: Cheats by someone, www.example.org"
+origin = { format = "atmosphere", name = "example.zip" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "master-setup"
+name = "Master setup"
+group = "Section A"
+master = true
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001FF0 D503201F
+"""
+
+[[cheat]]
+id = "money"
+name = "Money"
+group = "Section A"
+requires = ["master-setup"]
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.0" = 0x1008 } }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001008 B9001269
+"""
+
+[[cheat]]
+id = "branch-away"
+name = "Branch away"
+group = "Section A"
+requires = ["master-setup"]
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.0" = 0x100C } }
+  expect = "40 00 00 94"
+  bytes = "00 01 00 14"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 0000100C 14000100
+"""
+
+[[cheat]]
+id = "data-flag"
+name = "Data flag"
+group = "Data"
+requires = ["master-setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00003010 00000001
+"""
+
+[[cheat]]
+id = "heap-value"
+name = "Heap value"
+group = "Data"
+requires = ["master-setup"]
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x40 } }
+  type = "u16"
+  value = 65535
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+02100000 00000040 0000FFFF
+"""
+
+[[cheat]]
+id = "pointer"
+name = "Pointer"
+group = "Data"
+requires = ["master-setup"]
+
+  [[cheat.write]]
+  at = { module = "main", offsets = { "1.0.0" = 0x3020 }, path = [0x10, 0x8] }
+  type = "u32"
+  value = 99
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+580F0000 00003020
+580F1000 00000010
+780F0000 00000008
+640F0000 00000000 00000063
+"""
+
+[[cheat]]
+id = "hold-a"
+name = "Hold A"
+group = "Data"
+hold = "A"
+requires = ["master-setup"]
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.0" = 0x100C } }
+  expect = "40 00 00 94"
+  bytes = "1F 20 03 D5"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+80000001
+04000000 0000100C D503201F
+21000000
+04000000 0000100C 94000040
+20000000
+"""
+
+[[cheat]]
+id = "condition"
+name = "Condition"
+group = "Data"
+requires = ["master-setup"]
+
+  [[cheat.when]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x100 } }
+  type = "u32"
+  op = "=="
+  value = 5
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x104 } }
+  type = "u16"
+  value = 1
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+14150000 00000100 00000005
+02100000 00000104 00000001
+20000000
+"""
+
+[[cheat]]
+id = "cave-jump"
+name = "Cave jump"
+group = "Items"
+requires = ["master-setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+80000002
+080A0000 00001FE8 D503201F 52800020
+040A0000 00001010 140003F6
+21000000
+040A0000 00001010 90000008
+20000000
+"""
+
+[[cheat]]
+id = "speed"
+name = "Speed"
+requires = ["master-setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+C4000000 00000000 00000100
+040A0000 00001800 1E201000
+20000000
+"""
+
+[[cheat]]
+id = "loop"
+name = "Loop"
+requires = ["master-setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+300F0000 00000004
+04000000 00003000 00000000
+310F0000
+"""

@@ -1,0 +1,60 @@
+about = "A runtime that only patches bytes needs `expect` for an override."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "with-expect"
+name = "with-expect"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+  expect = "FD 7B BF A9"
+
+[[cheat]]
+id = "no-expect"
+name = "no-expect"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+'''
+
+[env]
+platform = "switch"
+capabilities = ["guest-read", "guest-write", "code-bytes", "buttons", "display"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "FD 7B BF A9 FD 03 00 91 11 22 33 94" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.with-expect]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", bytes = "C0 03 5F D6" },
+]
+
+[expect.cheat.no-expect]
+state = "refused"
+reason = "capability-missing:code-hook"

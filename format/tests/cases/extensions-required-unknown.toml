@@ -1,0 +1,44 @@
+about = "A required extension the reader lacks turns every cheat off."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { required = ["x-future/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "other"
+name = "other"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.plain]
+state = "refused"
+reason = "extension-missing:x-future/1"
+
+[expect.cheat.other]
+state = "refused"
+reason = "extension-missing:x-future/1"

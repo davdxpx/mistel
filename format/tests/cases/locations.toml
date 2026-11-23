@@ -1,0 +1,293 @@
+about = "Every kind of base: fixed, per build, pattern with offset and section, region; and how each fails."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "pattern"
+name = "pattern"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "pattern-back"
+name = "pattern-back"
+  [[cheat.patch]]
+  at = { module = "main", find = "11 22 33 94", offset = -4 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "pattern-ahead"
+name = "pattern-ahead"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9", offset = 4 }
+  expect = "11 22 33 94"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "not-found"
+name = "not-found"
+  [[cheat.patch]]
+  at = { module = "main", find = "01 02 03 05 07" }
+  expect = "01"
+  bytes = "02"
+
+[[cheat]]
+id = "overlapping"
+name = "overlapping"
+  [[cheat.patch]]
+  at = { module = "main", find = "AA AA AA AA" }
+  expect = "AA"
+  bytes = "BB"
+
+[[cheat]]
+id = "two-sections"
+name = "two-sections"
+  [[cheat.patch]]
+  at = { module = "main", find = "DE AD BE EF" }
+  expect = "DE"
+  bytes = "00"
+
+[[cheat]]
+id = "in-rodata"
+name = "in-rodata"
+  [[cheat.patch]]
+  at = { module = "main", find = "DE AD BE EF", section = "rodata" }
+  expect = "DE AD BE EF"
+  bytes = "00 00 00 00"
+
+[[cheat]]
+id = "in-code"
+name = "in-code"
+  [[cheat.patch]]
+  at = { module = "main", find = "DE AD BE EF", section = "code" }
+  expect = "DE AD BE EF"
+  bytes = "00 00 00 00"
+
+[[cheat]]
+id = "data-not-searched"
+name = "data-not-searched"
+  [[cheat.patch]]
+  at = { module = "main", find = "CA FE BA BE" }
+  expect = "CA"
+  bytes = "00"
+
+[[cheat]]
+id = "in-data"
+name = "in-data"
+  [[cheat.write]]
+  at = { module = "main", find = "CA FE BA BE", section = "data" }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "fixed"
+name = "fixed"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x400 }
+  expect = "13 37 13 37"
+  bytes = "00 00 00 00"
+
+[[cheat]]
+id = "per-build"
+name = "per-build"
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.2" = 0x404, "1.0.3" = 0x500 } }
+  expect = "C0 DE C0 DE"
+  bytes = "00 00 00 00"
+
+[[cheat]]
+id = "region"
+name = "region"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 7
+
+[[cheat]]
+id = "region-per-build"
+name = "region-per-build"
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.3" = 0x20 } }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "module-unknown"
+name = "module-unknown"
+  [[cheat.write]]
+  at = { module = "subsdk3", offset = 0x0 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "region-unknown"
+name = "region-unknown"
+  [[cheat.write]]
+  at = { region = "alias", offset = 0x0 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "outside-module"
+name = "outside-module"
+  [[cheat.write]]
+  at = { module = "main", offset = 0x2FFE }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "outside-region"
+name = "outside-region"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0xFFFF }
+  type = "u16"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+  { at = 0x200, hex = "AA AA AA AA AA" },
+  { at = 0x300, hex = "DE AD BE EF 01 02 03 04" },
+  { at = 0x400, hex = "13 37 13 37 C0 DE C0 DE" },
+  { at = 0x1300, hex = "DE AD BE EF 05 06 07 08" },
+  { at = 0x2100, hex = "CA FE BA BE 09 0A 0B 0C" },
+]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.pattern]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, module = "main", offset = 0x100, expect = "68 12 00 B9", bytes = "69 12 00 B9" },
+]
+
+[expect.cheat.pattern-back]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, offset = 0x100 },
+]
+
+[expect.cheat.pattern-ahead]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000104, offset = 0x104 },
+]
+
+[expect.cheat.not-found]
+state = "refused"
+reason = "pattern-not-found"
+
+[expect.cheat.overlapping]
+state = "refused"
+reason = "pattern-ambiguous"
+
+[expect.cheat.two-sections]
+state = "refused"
+reason = "pattern-ambiguous"
+
+[expect.cheat.in-rodata]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8001300, offset = 0x1300 },
+]
+
+[expect.cheat.in-code]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000300, offset = 0x300 },
+]
+
+[expect.cheat.data-not-searched]
+state = "refused"
+reason = "pattern-not-found"
+
+[expect.cheat.in-data]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "write", address = 0x8002100, offset = 0x2100, bytes = "01 00 00 00" },
+]
+
+[expect.cheat.fixed]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000400, offset = 0x400 },
+]
+
+[expect.cheat.per-build]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000404, offset = 0x404 },
+]
+
+[expect.cheat.region]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "write", address = 0x10000010, bytes = "07 00 00 00" },
+]
+
+[expect.cheat.region-per-build]
+state = "refused"
+reason = "build-unknown"
+
+[expect.cheat.module-unknown]
+state = "refused"
+reason = "module-unknown"
+
+[expect.cheat.region-unknown]
+state = "refused"
+reason = "region-unknown"
+
+[expect.cheat.outside-module]
+state = "refused"
+reason = "outside"
+
+[expect.cheat.outside-region]
+state = "refused"
+reason = "outside"

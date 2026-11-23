@@ -1,0 +1,44 @@
+format = "mncf/1"
+name = "Converted cheats"
+authors = ["Player"]
+origin = { format = "atmosphere" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "tickets"
+name = "Tickets"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "08 6A 98 52"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+040A0000 00001008 52986A08
+"""
+
+[[cheat]]
+id = "heap"
+name = "Heap"
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x10 } }
+  type = "u32"
+  value = 1
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04100000 00000010 00000001
+"""

@@ -1,0 +1,8 @@
+about = "A byte order mark before the first key makes the file unusable."
+hex = "EF BB BF 66 6F 72 6D 61 74 20 3D 20 22 6D 6E 63 66 2F 31 22 0A"
+
+[env]
+platform = "switch"
+
+[expect]
+error = "encoding"

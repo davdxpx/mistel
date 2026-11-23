@@ -1,0 +1,8 @@
+about = "A path that is not a string is a schema error."
+
+[zip]
+"pack.toml" = "files/pack-path-type.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+error = "schema:file.path"

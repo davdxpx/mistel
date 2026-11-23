@@ -1,0 +1,163 @@
+about = "Patches: `expect` is required and as long as `bytes`; a place that holds neither is refused."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "ok"
+name = "ok"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "already-applied"
+name = "already-applied"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "mismatch"
+name = "mismatch"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B8"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "length"
+name = "length"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00"
+
+[[cheat]]
+id = "no-expect"
+name = "no-expect"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "no-bytes"
+name = "no-bytes"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+
+[[cheat]]
+id = "bad-bytes"
+name = "bad-bytes"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 GG"
+
+[[cheat]]
+id = "second-mismatches"
+name = "second-mismatches"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x104 }
+  expect = "00 00 00 00"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "asm-ignored"
+name = "asm-ignored"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  asm = { expect = "anything", bytes = "at all" }
+
+[[cheat]]
+id = "asm-not-text"
+name = "asm-not-text"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  asm = { expect = 1 }
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+  { at = 0x200, hex = "69 12 00 B9" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.ok]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, expect = "68 12 00 B9", bytes = "69 12 00 B9" },
+]
+
+[expect.cheat.already-applied]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.mismatch]
+state = "refused"
+reason = "expect-mismatch"
+
+[expect.cheat.length]
+state = "refused"
+reason = "invalid:patch.expect"
+
+[expect.cheat.no-expect]
+state = "refused"
+reason = "invalid:patch.expect"
+
+[expect.cheat.no-bytes]
+state = "refused"
+reason = "invalid:patch.bytes"
+
+[expect.cheat.bad-bytes]
+state = "refused"
+reason = "invalid:patch.bytes"
+
+[expect.cheat.second-mismatches]
+state = "refused"
+reason = "expect-mismatch"
+
+[expect.cheat.asm-ignored]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.asm-not-text]
+state = "refused"
+reason = "invalid:patch.asm"

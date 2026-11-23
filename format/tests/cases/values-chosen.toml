@@ -1,0 +1,66 @@
+about = "A value the player chose is used instead of the default, and refused where it does not fit."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "count"
+name = "count"
+  [cheat.values.count]
+  type = "u32"
+  min = 0
+  max = 9999999
+  default = 999999
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u32"
+  value = "$count"
+
+[[cheat]]
+id = "narrow"
+name = "narrow"
+  [cheat.values.n]
+  type = "u32"
+  max = 9999999
+  default = 100
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u16"
+  value = "$n"
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[env.values]
+"count.count" = 5000
+"narrow.n" = 70000
+
+[expect]
+build = ""
+
+[expect.cheat.count]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "write", bytes = "88 13 00 00" },
+]
+
+[expect.cheat.narrow]
+state = "refused"
+reason = "value-out-of-range"
