@@ -22,7 +22,7 @@ OPS = {'patch': ('at', 'expect', 'bytes', 'encode', 'asm'), 'write': ('at', 'typ
 INLINE = {'at': ('module', 'region', 'address', 'find', 'offset', 'offsets', 'section', 'path'),
           'function': ('module', 'region', 'address', 'find', 'offset', 'offsets', 'section', 'path'),
           'value': ('at', 'type'), 'encode': ('insn', 'width', 'rd', 'value'), 'asm': ('expect', 'bytes'),
-          'origin': ('format', 'name'), 'extensions': ('required', 'optional'), 'modules': ()}
+          'origin': ('format', 'name', 'site'), 'extensions': ('required', 'optional'), 'modules': ()}
 PRESET = ('id', 'name', 'cheats', 'values')
 HEX_KEYS = {'offset', 'address', 'path', 'offsets'}
 MULTILINE = {'code', 'about'}

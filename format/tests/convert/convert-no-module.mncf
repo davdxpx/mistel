@@ -2,7 +2,7 @@ format = "mncf/1"
 name = "Example"
 authors = ["someone"]
 about = "Credits in the source: Cheats by someone, www.example.org"
-origin = { format = "atmosphere", name = "example.zip" }
+origin = { format = "atmosphere", name = "example.zip", site = "example.org" }
 extensions = { optional = ["raw/1"] }
 
 [game]

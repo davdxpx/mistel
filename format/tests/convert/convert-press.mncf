@@ -1,0 +1,60 @@
+format = "mncf/1"
+name = "Converted cheats"
+origin = { format = "atmosphere" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "patch-on-press"
+name = "Patch on press"
+run = "action"
+press = "LSTICK"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+80000010
+040A0000 00001008 B9001269
+20000000
+"""
+
+[[cheat]]
+id = "patch-and-data"
+name = "Patch and data"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+80000010
+040A0000 00001008 B9001269
+04100000 00000010 00000001
+20000000
+"""
+
+[[cheat]]
+id = "condition-on-code"
+name = "Condition on code"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+80000010
+14050000 00001008 B9001268
+040A0000 00001008 B9001269
+20000000
+20000000
+"""

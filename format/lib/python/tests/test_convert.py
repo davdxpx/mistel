@@ -209,12 +209,14 @@ class ConvertTest(unittest.TestCase):
         self.assertEqual(f.cheat('speed').values['value'].type, 'f32')
         self.assertEqual(f.cheat('speed').values['value'].default, 2.0)
         self.assertEqual((f.cheat('money').group, f.cheat('heap-value').group), ('Section A', 'Data'))
-        self.assertEqual((f.cheat('hold-a').hold, f.cheat('cave-jump').hold, f.cheat('speed').hold), ('A', 'B', 'ZL'))
+        self.assertEqual((f.cheat('hold-a').hold, f.cheat('cave-jump').hold), ('A', 'B'))
+        speed = f.cheat('speed')       # patches without an else branch: the patch stays after the press
+        self.assertEqual((speed.hold, speed.run, speed.press), (None, 'action', 'ZL'))
         self.assertEqual((f.cheat('cave-jump').group, f.cheat('speed').group), ('Items', None))
         self.assertEqual(f.cheat('money').requires, ['master-setup'])
         self.assertTrue(f.cheat('master-setup').master)
         self.assertEqual(f.authors, ['someone'])
-        self.assertEqual(f.doc['origin'], {'format': 'atmosphere', 'name': 'example.zip'})
+        self.assertEqual(f.doc['origin'], {'format': 'atmosphere', 'name': 'example.zip', 'site': 'example.org'})
         self.assertEqual(f.optional, ['raw/1', 'arm64-imm/1'])
         self.assertIn('find = "68 12 00 B9"', conv.text)
         if disasm.available():
@@ -236,6 +238,9 @@ class ConvertTest(unittest.TestCase):
     def test_authors(self):
         self.assertEqual(convert.authors_of(['credits: Some Forum', 'www.example.org',
                                              'This set is created by Ann & Bo, enjoy!']), ['Some Forum', 'Ann', 'Bo'])
+        self.assertEqual(convert.authors_of(['Cheats by Ann on Some Forum & Bo @ Other', 'by Cy (a forum)']),
+                         ['Ann (Some Forum)', 'Bo (Other)', 'Cy (a forum)'])
+        self.assertEqual(convert.site_of(['credits: Some Forum', 'https://www.Example.org/cheats']), 'example.org')
         plain = '[Money]\n04100000 00000010 00000001\n'
         f = mncf.load(convert.from_atmosphere(source(text=plain), game_id=syn.GAME_ID, authors=['Player']).text.encode())
         self.assertEqual(f.authors, ['Player'])
@@ -282,9 +287,7 @@ class ConvertTest(unittest.TestCase):
         self.assertTrue(all(how == 'raw' for _, how in report.written))
         _, core, report = convert.to_atmosphere(f, '1.0.0', mod, prefer='core')
         same, differ, missing = convert.compare(syn.CHEATS, core, effects=True)
-        # Speed's button block has no else branch: in Atmosphère its patch stays after the buttons are released,
-        # while .mncf restores code on release, so the code written back restores it too.
-        self.assertEqual(differ, ['Speed'])
+        self.assertEqual(differ, [])
         self.assertEqual((dict(report.written)['loop'], dict(report.written)['money']), ('raw', 'core'))
         with self.assertRaises(ValueError):
             convert.to_atmosphere(f, '9.9.9', mod)

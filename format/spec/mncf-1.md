@@ -69,7 +69,7 @@ The cheat finds its place by a byte pattern, so it works on both builds and on a
 | `about` | string | no | A description of the file, credits |
 | `file_version` | string | no | The authors' own version of this file, so a runtime can say that a newer one was imported |
 | `language` | string | no | The language of the file's plain strings, a BCP 47 tag. Default `"en"` |
-| `origin` | inline table | no | Where the file's cheats came from when a program converted them: `format`, the source's format (`"atmosphere"`, or a name starting with `x-`), and `name`, the name of the source as the player had it, such as a ZIP file or a folder. For people and for support; a reader does not act on it |
+| `origin` | inline table | no | Where the file's cheats came from when a program converted them: `format`, the source's format (`"atmosphere"`, or a name starting with `x-`); `name`, the name of the source as the player had it, such as a ZIP file or a folder; and `site`, the website the source names, as a domain (`"example.org"`). For people and for support; a reader does not act on it |
 | `extensions` | table | no | `required` and `optional`, arrays of extension names with their version (`"arm64-imm/1"`), section 10 |
 | `game` | table | yes | Section 5 |
 | `builds` | table | no | Section 5 |
@@ -175,7 +175,7 @@ A cheat does its work through one or more operations: `patch` (section 7.4), `wr
 |---|---|
 | `"on"` | While the cheat is on, its patches and overrides stay applied and its writes repeat at every pass. Switching it off restores what its patches and overrides changed |
 | `"once"` | Its writes happen once, when it is switched on. It then shows as done and can be run again |
-| `"action"` | Its writes happen once each time its `press` buttons are pressed. Needs `press`; `press` is only for this mode |
+| `"action"` | Its writes happen once each time its `press` buttons are pressed; its patches and overrides are applied at the first press and stay until the cheat is switched off. Needs `press`; `press` is only for this mode |
 | `"timed"` | As `"on"`, for `duration` seconds (a number above 0), then it switches itself off. `duration` is only for this mode |
 | `"monitor"` | It only reads and shows values (section 7.7): it has `read` operations and no others. `read` is only for this mode |
 
@@ -552,7 +552,7 @@ A converter (`mistel convert`) keeps every cheat of the file it reads. For an At
 | `{Name}` | A master cheat that the other cheats require |
 | An entry that only restores code | Dropped: runtimes restore code themselves (section 11.3) |
 | Credits, links, the title line | `authors`, `about` |
-| A key mask (code type 8, or C4 without repeat) around the whole cheat | `hold`. An else branch that writes back the original bytes of what the block patches is dropped, as runtimes restore patches on release |
+| A key mask (code type 8, or C4 without repeat) around the whole cheat | `hold`, where the block only writes data, or where an else branch writes back the original bytes of what it patches (the else branch is dropped, as runtimes restore patches on release). A block that patches code without such an else branch leaves its patch when the buttons are let go: it becomes `run = "action"` with `press`. One that patches without an else branch and also writes data keeps only its `raw` entry |
 | A memory condition (code type 1) around the whole cheat | `when` |
 
 Where the code is only plain writes, the converter writes core operations: a write into a module's code becomes a patch, one into its data or a region a write, a pointer chain (code types 5, 7 and 6) a `path`. With the game's code module at hand, the converter fills `expect` from it and replaces fixed offsets by patterns, so that a cheat made for one build works on every build where its place can be found. Without the module, it keeps fixed offsets per build and the `raw` entry.
@@ -569,7 +569,8 @@ Converters for the cheat and patch files of other emulators and for PC cheat tab
 
 A converter also writes down what it knows about the source:
 
-- `origin` names the source's format and, where the caller knows it, its name. `authors` are the people the source credits; where it credits nobody, the caller MAY name a default author, such as the player who imported the file, and otherwise `authors` is left out. Credit lines, links and title lines go into `about` as they were.
+- `origin` names the source's format, where the caller knows it the source's name, and the website the source's links name. `authors` are the people the source credits, each with the platform the source names for them in parentheses (`"Ann (example forum)"` for "Ann on example forum"); where it credits nobody, the caller MAY name a default author, such as the player who imported the file, and otherwise `authors` is left out. Credit lines, links and title lines go into `about` as they were.
+
 - A patch whose new bytes are one `movz`, a `movz` and a `movk` of the same register, or one `fmov` with an immediate, MAY become an `arm64-imm/1` patch whose value the player sets, with the instruction's own number as the default.
 - Files for several builds of the same game become one file with all of those builds. A cheat with the same name that does the same in two builds, apart from fixed offsets, becomes one cheat with offsets for each build and a `raw` entry for each.
 - A converter MUST NOT take original bytes from places where the module it was given does not hold the game's own bytes, such as code a runtime rewrote; there a patch keeps fixed offsets and takes `expect` only from the source itself.

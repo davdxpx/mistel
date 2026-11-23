@@ -25,6 +25,8 @@ CREDIT_NAME = re.compile(r'credit|made by|created by|written by|cheats? by|codes
                          r'\.com\b|\.org\b|\.net\b|discord|patreon|\bTID\s*=|\bBID\s*=', re.I | re.A)
 LINK = re.compile(r'www\.|https?:|\.com\b|\.org\b|\.net\b', re.I | re.A)
 AUTHOR = re.compile(r'\bby\s+(.+)|\bcredits?\s*[:=]\s*(.+)', re.I | re.A)
+PLATFORM = re.compile(r'^(.+?)\s*(?:\s(?:on|at|from)\s|@|\()\s*(.+?)\)?\Z', re.I | re.A)
+SITE = re.compile(r'(?:https?://)?(?:www\.)?([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})', re.A)
 DECORATION = re.compile(r'^[\s\-=*~#_.:+<>|]+|[\s\-=*~#_.:+<>|]+\Z', re.A)
 GROUP_END = [0x20000001]
 
@@ -89,18 +91,31 @@ def slug(name, taken):
 
 
 def authors_of(credits):
-    """The names that credit lines give: what follows "by" or "credits:", up to a comma or the end."""
+    """The people that credit lines name: what follows "by" or "credits:", up to a comma or the end. A person named
+    with the platform they posted on ("Ann on GBAtemp", "Ann @ GBAtemp") is written "Ann (GBAtemp)"."""
     names = []
     for line in credits:
         m = AUTHOR.search(line)
         if not m:
             continue
-        text = re.split(r'[,!;(|]', m.group(1) or m.group(2))[0].strip()
-        for name in re.split(r'\s+&\s+|\s+and\s+|/', text, flags=re.A):
+        text = re.split(r'[,!;|]', m.group(1) or m.group(2))[0].strip()
+        for name in re.split(r'\s+&\s+|\s+and\s+', text, flags=re.A):
             name = name.strip(' .')
-            if name and not LINK.search(name) and name not in names:
+            on = PLATFORM.match(name)
+            if on:
+                name = f'{on.group(1).strip()} ({on.group(2).strip(" .()")})'
+            if name and not LINK.match(name) and name not in names:
                 names.append(name)
     return names
+
+
+def site_of(credits):
+    """The website the credit lines name, as a lower-case domain without www, or None."""
+    for line in credits:
+        m = SITE.search(line)
+        if m:
+            return m.group(1).lower()
+    return None
 
 
 # ---- one file -------------------------------------------------------------------------------------------------------
@@ -247,6 +262,7 @@ class _Cheat:
     def __init__(self, item, key, rep):
         self.item, self.key, self.rep = item, key, rep
         self.hold = None
+        self.press = None          # buttons of a block that patches without an else branch: run = "action"
         self.ops = []          # (kind, table)
         self.values = {}
         self.raw = {'syntax': 'atmosphere', 'build': key, 'code': item.entry.code}
@@ -271,7 +287,7 @@ def _convert_one(src, key, report, asm, values):
                 _core(c, it.derived, module, originals, asm, values)
                 rep.outcome = 'pattern' if rep.patterns and not rep.fixed else 'build'
             except atm.Unclear as u:
-                c.ops, c.values, c.hold = [], {}, None
+                c.ops, c.values, c.hold, c.press = [], {}, None, None
                 rep.why, rep.outcome, rep.patterns, rep.fixed, rep.values, rep.notes = u.why, 'raw', 0, 0, 0, []
         out.append(c)
         report.cheats.append(rep)
@@ -280,9 +296,10 @@ def _convert_one(src, key, report, asm, values):
 
 def _core(c, d, module, originals, asm, values):
     rep, key = c.rep, c.key
+    buttons = None
     if d.keys:
-        c.hold = atm.keys_to_buttons(d.keys)
-        if c.hold is None:
+        buttons = atm.keys_to_buttons(d.keys)
+        if buttons is None:
             raise atm.Unclear('a button mask with bits that have no name')
     code, ops = [], []
     for s in d.stores:
@@ -316,6 +333,14 @@ def _core(c, d, module, originals, asm, values):
         patches.append(_patch(c, off, data, expect, module, asm, values))
     if not patches and not ops:
         raise atm.Unclear('it writes only what is already there')
+    if buttons is not None:
+        if d.released is None and patches:
+            # Atmosphère patches at the press and leaves the patch when the buttons are let go: run = "action".
+            if ops:
+                raise atm.Unclear('a button block without an else branch that patches code and writes data')
+            c.press = buttons
+        else:
+            c.hold = buttons
     c.ops = [('patch', p) for p in patches] + ops
     if d.condition is not None:
         cond = d.condition
@@ -384,7 +409,7 @@ def _shape(ops):
 
 
 def _mergeable(a, b):
-    return a.hold == b.hold and a.values == b.values and _shape(a.ops) == _shape(b.ops)
+    return a.hold == b.hold and a.press == b.press and a.values == b.values and _shape(a.ops) == _shape(b.ops)
 
 
 def _merge_into(a, b):
@@ -457,6 +482,8 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
             t['master'] = True
         elif master_of.get(first.key) is not None:
             t['requires'] = [ids[id(master_of[first.key])]]
+        if first.press:
+            t['run'], t['press'] = 'action', first.press
         if first.hold:
             t['hold'] = first.hold
         if first.values:
@@ -477,6 +504,9 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
     doc['origin'] = {'format': 'atmosphere'}
     if origin:
         doc['origin']['name'] = origin
+    site = site_of(report.credits)
+    if site:
+        doc['origin']['site'] = site
     exts = ['raw/1'] + (['arm64-imm/1'] if any(c.get('values') for c in cheats) else [])
     doc['extensions'] = {'optional': exts}
     doc['game'] = {'platform': platform, 'id': game_id.upper()}
@@ -573,10 +603,10 @@ def _default(c, v):
 
 
 def _core_words(c, build_key, module):
-    if c.run != 'on':
+    if c.run not in ('on', 'action'):
         raise atm.Unclear(f'run = "{c.run}" has no Atmosphère form')
-    if c.toggle or c.press:
-        raise atm.Unclear('toggle and press buttons have no Atmosphère form')
+    if c.toggle:
+        raise atm.Unclear('toggle buttons have no Atmosphère form')
     stores, restores, conds = [], [], []
     for op in c.ops:
         if isinstance(op, Patch):
@@ -623,7 +653,11 @@ def _core_words(c, build_key, module):
                 not isinstance(value, int) or isinstance(value, bool):
             raise atm.Unclear('a condition that Atmosphère cannot say')
         body = atm.condition_words(place, int(cond.type[1:]) // 8, cond.op, value) + body + [0x20000000]
-    if c.hold:
+    if c.run == 'action':
+        if c.hold or any(isinstance(op, Write) for op in c.ops):
+            raise atm.Unclear('an action with writes or hold has no Atmosphère form')
+        words = [0x80000000 | atm.buttons_to_keys(c.press)] + body + [0x20000000]
+    elif c.hold:
         words = [0x80000000 | atm.buttons_to_keys(c.hold)] + body
         if restores:
             words += [0x21000000] + [w for s in restores for w in atm.store_words(s.place, s.width, s.value)]

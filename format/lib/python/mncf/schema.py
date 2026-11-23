@@ -76,10 +76,11 @@ def build_file(doc, platforms):
     if 'origin' in doc:
         origin = doc['origin']
         if not isinstance(origin, dict) or not isinstance(origin.get('format'), str) or \
-                not isinstance(origin.get('name', ''), str):
-            raise MncfError('schema:origin', '`origin` must be a table with a `format` string and maybe a `name`')
+                not all(isinstance(origin.get(k, ''), str) for k in ('name', 'site')):
+            raise MncfError('schema:origin', '`origin` must be a table with a `format` string and maybe `name` and '
+                                             '`site` strings')
         for k in origin:
-            if k not in ('format', 'name'):
+            if k not in ('format', 'name', 'site'):
                 warnings.append(f'unknown-key:origin.{k}')
         out['origin'] = dict(origin)
     required, optional = [], []

@@ -1,0 +1,29 @@
+format = "mncf/1"
+name = "Converted cheats"
+authors = ["Ann (Some Forum)", "Bo (Other)"]
+about = "Credits in the source: Cheats by Ann on Some Forum & Bo @ Other; www.example.org"
+origin = { format = "atmosphere", site = "example.org" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "heap"
+name = "Heap"
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x10 } }
+  type = "u32"
+  value = 1
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04100000 00000010 00000001
+"""

@@ -2,7 +2,7 @@ format = "mncf/1"
 name = "Example"
 authors = ["someone"]
 about = "Credits in the source: Cheats by someone, www.example.org"
-origin = { format = "atmosphere", name = "example.zip" }
+origin = { format = "atmosphere", name = "example.zip", site = "example.org" }
 extensions = { optional = ["raw/1", "arm64-imm/1"] }
 
 [game]
@@ -284,7 +284,8 @@ requires = ["master-setup"]
 [[cheat]]
 id = "speed"
 name = "Speed"
-hold = "ZL"
+run = "action"
+press = "ZL"
 requires = ["master-setup"]
 
   [cheat.values.value]
