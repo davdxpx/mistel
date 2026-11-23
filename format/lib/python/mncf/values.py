@@ -99,6 +99,14 @@ def fits(t, v):
     return False
 
 
+def decode(t, raw, byte_order):
+    """The number that the bytes hold as type t, in the platform's byte order."""
+    if t in INT_TYPES:
+        return int.from_bytes(raw, byte_order, signed=INT_TYPES[t][1])
+    fmt = ('<' if byte_order == 'little' else '>') + ('f' if t == 'f32' else 'd')
+    return struct.unpack(fmt, raw)[0]
+
+
 def encode(t, v, byte_order):
     """The bytes of the number v as type t, in the platform's byte order."""
     if t == 'bool':

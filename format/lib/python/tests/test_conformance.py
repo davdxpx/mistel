@@ -14,7 +14,7 @@ class ConformanceTest(unittest.TestCase):
         for name, case, run, folder in conformance.cases():
             count += 1
             with self.subTest(case=name):
-                problems = conformance.compare(case.get('expect', {}), run(case, folder), folder)
+                problems = conformance.check(name, case, run(case, folder), folder)
                 self.assertEqual(problems, [], '\n'.join(problems))
         self.assertGreater(count, 0)
 
