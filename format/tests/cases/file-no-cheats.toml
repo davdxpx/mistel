@@ -1,0 +1,15 @@
+about = "The file needs at least one cheat."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+'''
+
+[env]
+platform = "switch"
+
+[expect]
+error = "schema:cheat"

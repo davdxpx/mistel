@@ -1,0 +1,22 @@
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "money"
+name = "money"
+default = true
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+# mncf-signature: ed25519 21fe31dfa154a261 RJ2ZB6dN9Q+8ccRAdFOP3gz5gLa42hYNl/LtIL2OJ6mm71SS1RMtUr4il95QJhkc9gCySb4gviWvJHLh2scaEg==

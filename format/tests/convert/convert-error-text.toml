@@ -1,0 +1,12 @@
+about = "A file that is not an Atmosphère cheat file: the error `atmosphere`."
+game = "0100000000ABC000"
+
+[[source]]
+build_id = "0123456789ABCDEF"
+text = '''
+[Heap]
+04100000 0000001 00000001
+'''
+
+[expect]
+error = "atmosphere"

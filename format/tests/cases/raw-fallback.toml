@@ -1,0 +1,71 @@
+about = "A runtime that lacks a capability the core operations need uses the raw entry of the running build."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "fallback"
+name = "fallback"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.2"
+  code = """
+04000000 00000100 B9001269
+"""
+
+[[cheat]]
+id = "no-entry"
+name = "no-entry"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.3"
+  code = """
+04000000 00000100 B9001269
+"""
+'''
+
+[env]
+platform = "switch"
+capabilities = ["guest-read", "guest-write", "buttons", "display"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.fallback]
+state = "off"
+reason = ""
+uses = "raw"
+
+[expect.cheat.no-entry]
+state = "refused"
+reason = "capability-missing:code-bytes"

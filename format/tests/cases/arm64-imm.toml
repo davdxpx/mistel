@@ -1,0 +1,206 @@
+about = "arm64-imm/1: a patch whose instruction carries a value, and the values an instruction cannot hold."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "movz"
+name = "movz"
+  [cheat.values.count]
+  type = "u16"
+  default = 99
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$count" }
+
+[[cheat]]
+id = "movz-movk"
+name = "movz-movk"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "08 00 80 52 08 00 A0 72"
+  encode = { insn = "movz-movk", width = 32, rd = 8, value = 0x12345678 }
+
+[[cheat]]
+id = "fmov"
+name = "fmov"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "00 10 2E 1E"
+  encode = { insn = "fmov", width = 32, rd = 0, value = 2.0 }
+
+[[cheat]]
+id = "fmov-half"
+name = "fmov-half"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "00 10 2E 1E"
+  encode = { insn = "fmov", width = 32, rd = 0, value = 0.5 }
+
+[[cheat]]
+id = "fmov-double"
+name = "fmov-double"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "00 10 2E 1E"
+  encode = { insn = "fmov", width = 64, rd = 1, value = -1.0 }
+
+[[cheat]]
+id = "movz-too-big"
+name = "movz-too-big"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = 70000 }
+
+[[cheat]]
+id = "fmov-inexact"
+name = "fmov-inexact"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x300 }
+  expect = "00 10 2E 1E"
+  encode = { insn = "fmov", width = 32, rd = 0, value = 0.1 }
+
+[[cheat]]
+id = "player-too-big"
+name = "player-too-big"
+  [cheat.values.n]
+  type = "u32"
+  default = 70000
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$n" }
+
+[[cheat]]
+id = "expect-length"
+name = "expect-length"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz-movk", width = 32, rd = 8, value = 1 }
+
+[[cheat]]
+id = "bad-insn"
+name = "bad-insn"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "add", width = 32, rd = 8, value = 1 }
+
+[[cheat]]
+id = "bad-width"
+name = "bad-width"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 16, rd = 8, value = 1 }
+
+[[cheat]]
+id = "both"
+name = "both"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = 1 }
+  bytes = "09 00 80 52"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "08 00 80 52 11 22 33 94" },
+  { at = 0x200, hex = "08 00 80 52 08 00 A0 72" },
+  { at = 0x300, hex = "00 10 2E 1E" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.movz]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, expect = "08 00 80 52", bytes = "68 0C 80 52" },
+]
+
+[expect.cheat.movz-movk]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", bytes = "08 CF 8A 52 88 46 A2 72" },
+]
+
+[expect.cheat.fmov]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", bytes = "00 10 20 1E" },
+]
+
+[expect.cheat.fmov-half]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", bytes = "00 10 2C 1E" },
+]
+
+[expect.cheat.fmov-double]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", bytes = "01 10 7E 1E" },
+]
+
+[expect.cheat.movz-too-big]
+state = "refused"
+reason = "invalid:patch.encode.value"
+
+[expect.cheat.fmov-inexact]
+state = "refused"
+reason = "invalid:patch.encode.value"
+
+[expect.cheat.player-too-big]
+state = "refused"
+reason = "value-out-of-range"
+
+[expect.cheat.expect-length]
+state = "refused"
+reason = "invalid:patch.expect"
+
+[expect.cheat.bad-insn]
+state = "refused"
+reason = "invalid:patch.encode.insn"
+
+[expect.cheat.bad-width]
+state = "refused"
+reason = "invalid:patch.encode.width"
+
+[expect.cheat.both]
+state = "refused"
+reason = "invalid:patch.bytes"

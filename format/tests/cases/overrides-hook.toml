@@ -1,0 +1,77 @@
+about = "A runtime that hooks functions (a recompilation) applies overrides without patching bytes."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "skip"
+name = "skip"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+  expect = "FD 7B BF A9"
+
+[[cheat]]
+id = "no-expect"
+name = "no-expect"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = 1
+
+[[cheat]]
+id = "patch"
+name = "patch"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "FD 7B BF A9"
+  bytes = "1F 20 03 D5"
+'''
+
+[env]
+platform = "switch"
+capabilities = ["guest-read", "guest-write", "code-hook", "buttons", "display"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "FD 7B BF A9 FD 03 00 91 11 22 33 94" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.skip]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", address = 0x8000100, action = "skip" },
+]
+
+[expect.cheat.no-expect]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", action = "return", value = 1 },
+]
+
+[expect.cheat.patch]
+state = "refused"
+reason = "capability-missing:code-bytes"

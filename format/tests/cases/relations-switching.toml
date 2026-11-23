@@ -1,0 +1,150 @@
+about = "Cheats switched on in file order: a later one switches off what it excludes, the rest of its radio group, and what needed those."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "x2"
+name = "x2"
+default = true
+radio = "speed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "x4"
+name = "x4"
+default = true
+radio = "speed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "a"
+name = "a"
+default = true
+excludes = ["b"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "b"
+name = "b"
+default = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "e"
+name = "e"
+default = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "g"
+name = "g"
+default = true
+requires = ["h"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "h"
+name = "h"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "i"
+name = "i"
+default = true
+excludes = ["h"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "j"
+name = "j"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+on = ["x2", "j"]
+off = ["e"]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.x2]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.x4]
+state = "on"
+reason = ""
+uses = "core"
+
+[expect.cheat.a]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.b]
+state = "on"
+reason = ""
+uses = "core"
+
+[expect.cheat.e]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.g]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.h]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.i]
+state = "on"
+reason = ""
+uses = "core"
+
+[expect.cheat.j]
+state = "on"
+reason = ""
+uses = "core"

@@ -1,0 +1,29 @@
+about = "A line of another algorithm is not checked as ed25519, even when it has the same shape."
+file = "signed-algorithm-name.mncf"
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[[trust.key]]
+name = "Test key one"
+public = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+
+[expect]
+signature = "unknown-key"
+build = "1.0.2"
+
+[expect.cheat.money]
+state = "on"
+reason = ""
+uses = "core"

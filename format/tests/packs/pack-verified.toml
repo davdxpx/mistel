@@ -1,0 +1,14 @@
+about = "A manifest signed by a trusted key."
+
+[zip]
+"pack.toml" = "files/pack-signed.toml"
+"example.mncf" = "files/example.mncf"
+
+[[trust.key]]
+name = "Test key one"
+public = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+
+[expect]
+signature = "verified"
+signers = ["Test key one"]
+files = { "example.mncf" = "ok" }

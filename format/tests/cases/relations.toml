@@ -1,0 +1,193 @@
+about = "requires, master cheats, and relations that can never hold."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "base"
+name = "base"
+  [[cheat.patch]]
+  at = { module = "main", find = "01 02 03 05" }
+  expect = "01"
+  bytes = "02"
+
+[[cheat]]
+id = "needs-base"
+name = "needs-base"
+requires = ["base"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "needs-needs-base"
+name = "needs-needs-base"
+requires = ["needs-base"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "setup"
+name = "setup"
+master = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "user"
+name = "user"
+default = true
+requires = ["setup"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "other-setup"
+name = "other-setup"
+master = true
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "lazy"
+name = "lazy"
+requires = ["other-setup"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "contradiction"
+name = "contradiction"
+requires = ["lazy"]
+excludes = ["lazy"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "radio-a"
+name = "radio-a"
+radio = "speed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "radio-b"
+name = "radio-b"
+radio = "speed"
+requires = ["radio-a"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "unknown"
+name = "unknown"
+requires = ["ghost"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "itself"
+name = "itself"
+excludes = ["itself"]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.base]
+state = "refused"
+reason = "pattern-not-found"
+
+[expect.cheat.needs-base]
+state = "refused"
+reason = "requires:base"
+
+[expect.cheat.needs-needs-base]
+state = "refused"
+reason = "requires:needs-base"
+
+[expect.cheat.setup]
+state = "on"
+reason = ""
+uses = "core"
+
+[expect.cheat.user]
+state = "on"
+reason = ""
+uses = "core"
+
+[expect.cheat.other-setup]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.lazy]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.contradiction]
+state = "refused"
+reason = "excludes:lazy"
+
+[expect.cheat.radio-a]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.radio-b]
+state = "refused"
+reason = "excludes:radio-a"
+
+[expect.cheat.unknown]
+state = "refused"
+reason = "invalid:requires"
+
+[expect.cheat.itself]
+state = "refused"
+reason = "invalid:excludes"

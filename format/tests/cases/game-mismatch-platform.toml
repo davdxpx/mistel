@@ -1,0 +1,31 @@
+about = "A file for another platform is not applied."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch2"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.plain]
+state = "refused"
+reason = "game-mismatch"

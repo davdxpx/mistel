@@ -1,0 +1,61 @@
+about = "A runtime without an optional extension turns off only the cheats that use it."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "movz"
+name = "movz"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  encode = { insn = "movz", width = 32, rd = 8, value = 1 }
+
+[[cheat]]
+id = "plain"
+name = "plain"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "08 00 80 52"
+  bytes = "09 00 80 52"
+'''
+
+[env]
+platform = "switch"
+extensions = ["raw/1"]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "08 00 80 52 11 22 33 94" },
+  { at = 0x200, hex = "08 00 80 52 08 00 A0 72" },
+  { at = 0x300, hex = "00 10 2E 1E" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.movz]
+state = "refused"
+reason = "extension-missing:arm64-imm/1"
+
+[expect.cheat.plain]
+state = "off"
+reason = ""
+uses = "core"

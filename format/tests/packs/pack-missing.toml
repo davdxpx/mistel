@@ -1,0 +1,9 @@
+about = "A file the manifest lists but the pack does not hold."
+
+[zip]
+"pack.toml" = "files/pack-missing.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+signature = "unsigned"
+files = { "example.mncf" = "ok", "other.mncf" = "missing" }

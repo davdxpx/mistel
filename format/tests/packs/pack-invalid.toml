@@ -1,0 +1,13 @@
+about = "A manifest changed after signing: the pack is not applied."
+
+[zip]
+"pack.toml" = "files/pack-signed-changed.toml"
+"example.mncf" = "files/example.mncf"
+
+[[trust.key]]
+name = "Test key one"
+public = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+
+[expect]
+signature = "invalid"
+files = { "example.mncf" = "ok" }

@@ -1,0 +1,18 @@
+about = "Authors with the platform the source names for them, and the site of its link."
+game = "0100000000ABC000"
+authors = ["Player"]
+
+[[source]]
+build_id = "0123456789ABCDEF"
+version = "1.0.0"
+text = '''
+[Cheats by Ann on Some Forum & Bo @ Other]
+
+[www.example.org]
+
+[Heap]
+04100000 00000010 00000001
+'''
+
+[expect]
+file = "convert-authors.mncf"

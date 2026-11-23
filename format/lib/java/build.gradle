@@ -1,0 +1,48 @@
+// The Java reader of the .mncf format: a plain Java 8 library without dependencies.
+//
+// An app includes it with includeBuild in its settings.gradle and depends on
+// io.github.davdxpx.mistel:mncf. The tests run through RunTests, without a test framework,
+// so that building the library downloads nothing.
+
+plugins {
+    id 'java-library'
+}
+
+group = 'io.github.davdxpx.mistel'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all,-options']
+    // On a newer JDK, release 8 also keeps out any API that Java 8 does not have.
+    if (JavaVersion.current().isJava9Compatible()) {
+        options.release = 8
+    }
+}
+
+// The test classes have no test framework; runTests runs them instead.
+tasks.named('test') {
+    enabled = false
+}
+
+def testRoot = file('src/test/java')
+
+tasks.register('runTests', JavaExec) {
+    description = 'Runs the unit tests and the conformance suite in ../../tests.'
+    group = 'verification'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.github.davdxpx.mistel.mncf.testing.RunTests'
+    systemProperty 'mncf.tests', file('../../tests').absolutePath
+    args fileTree(testRoot).matching { include '**/*Test.java' }.files.collect {
+        testRoot.toPath().relativize(it.toPath()).toString().replace(File.separatorChar, '.' as char) - '.java'
+    }.sort()
+}
+
+tasks.named('check') {
+    dependsOn 'runTests'
+}

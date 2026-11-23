@@ -1,0 +1,35 @@
+about = "`origin` says where converted cheats came from; a key in it that the spec does not define is a warning."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+origin = { format = "atmosphere", name = "example.zip", when = "yesterday" }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+warnings = ["unknown-key:origin.when"]
+
+[expect.cheat.plain]
+state = "off"
+reason = ""
+uses = "core"

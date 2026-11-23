@@ -1,0 +1,305 @@
+about = "Conditions (section 7.9): their rules, and what they resolve to."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "below"
+name = "below"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "<"
+  value = 10
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  value = 100
+
+[[cheat]]
+id = "between"
+name = "between"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "between"
+  value = [1, 5]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "changed"
+name = "changed"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "place"
+name = "place"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "<"
+  value = { at = { region = "heap", offset = 0x20 }, type = "u16" }
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "player"
+name = "player"
+  [cheat.values.limit]
+  type = "u16"
+  default = 30
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "<="
+  value = "$limit"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bits"
+name = "bits"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "&"
+  value = 4
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "enter"
+name = "enter"
+trigger = "enter"
+match = "any"
+interval = 10
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "=="
+  value = 1
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bits-float"
+name = "bits-float"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "f32"
+  op = "&"
+  value = 4
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "between-reversed"
+name = "between-reversed"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "between"
+  value = [5, 1]
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "changed-value"
+name = "changed-value"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "changed"
+  value = 1
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bad-op"
+name = "bad-op"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "=~"
+  value = 1
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "no-value"
+name = "no-value"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "=="
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bad-match"
+name = "bad-match"
+match = "most"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bad-interval"
+name = "bad-interval"
+interval = 0
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "bad-trigger"
+name = "bad-trigger"
+trigger = "leave"
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u16"
+  op = "changed"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.below]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", address = 0x10000010, type = "u16", op = "<", value = 10 },
+  { kind = "write", address = 0x10000010, bytes = "64 00" },
+]
+
+[expect.cheat.between]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "between", value = [1, 5] },
+  { kind = "write" },
+]
+
+[expect.cheat.changed]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "changed" },
+  { kind = "write" },
+]
+
+[expect.cheat.place]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", value = { address = 0x10000020, type = "u16" } },
+  { kind = "write" },
+]
+
+[expect.cheat.player]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "when", op = "<=", value = 30 },
+  { kind = "write" },
+]
+
+[expect.cheat.bits]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.enter]
+state = "off"
+reason = ""
+uses = "core"
+
+[expect.cheat.bits-float]
+state = "refused"
+reason = "invalid:when.type"
+
+[expect.cheat.between-reversed]
+state = "refused"
+reason = "invalid:when.value"
+
+[expect.cheat.changed-value]
+state = "refused"
+reason = "invalid:when.value"
+
+[expect.cheat.bad-op]
+state = "refused"
+reason = "invalid:when.op"
+
+[expect.cheat.no-value]
+state = "refused"
+reason = "invalid:when.value"
+
+[expect.cheat.bad-match]
+state = "refused"
+reason = "invalid:match"
+
+[expect.cheat.bad-interval]
+state = "refused"
+reason = "invalid:interval"
+
+[expect.cheat.bad-trigger]
+state = "refused"
+reason = "invalid:trigger"

@@ -1,0 +1,29 @@
+about = "The format has no date or time values; a file with one is unusable."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+released = 2026-01-01
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "plain"
+name = "plain"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+error = "toml"

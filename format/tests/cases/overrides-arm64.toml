@@ -1,0 +1,217 @@
+about = "Overrides where the runtime writes a stub over the function's first bytes (ARM64)."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "skip"
+name = "skip"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+  expect = "FD 7B BF A9"
+
+[[cheat]]
+id = "return-one"
+name = "return-one"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = 1
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "return-minus-one"
+name = "return-minus-one"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = -1
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "return-wide"
+name = "return-wide"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = 0x12345678
+  expect = "FD 7B BF A9 FD 03 00 91 11 22 33 94"
+
+[[cheat]]
+id = "expect-short"
+name = "expect-short"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = 1
+  expect = "FD 7B BF A9"
+
+[[cheat]]
+id = "player"
+name = "player"
+  [cheat.values.v]
+  type = "u32"
+  default = 7
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = "$v"
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "player-too-wide"
+name = "player-too-wide"
+  [cheat.values.v]
+  type = "u32"
+  default = 0x12345678
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = "$v"
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "bool"
+name = "bool"
+  [cheat.values.b]
+  type = "bool"
+  default = true
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  value = "$b"
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "mismatch"
+name = "mismatch"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+  expect = "FD 7B BF A8"
+
+[[cheat]]
+id = "skip-value"
+name = "skip-value"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "skip"
+  value = 1
+  expect = "FD 7B BF A9"
+
+[[cheat]]
+id = "return-no-value"
+name = "return-no-value"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "return"
+  expect = "FD 7B BF A9 FD 03 00 91"
+
+[[cheat]]
+id = "bad-action"
+name = "bad-action"
+  [[cheat.override]]
+  function = { module = "main", find = "FD 7B BF A9 FD 03 00 91 ?? ?? ?? 94" }
+  action = "crash"
+  expect = "FD 7B BF A9 FD 03 00 91"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "FD 7B BF A9 FD 03 00 91 11 22 33 94" },
+]
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.skip]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", address = 0x8000100, action = "skip", bytes = "C0 03 5F D6" },
+]
+
+[expect.cheat.return-one]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", action = "return", value = 1, bytes = "20 00 80 D2 C0 03 5F D6" },
+]
+
+[expect.cheat.return-minus-one]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", bytes = "00 00 80 92 C0 03 5F D6" },
+]
+
+[expect.cheat.return-wide]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", bytes = "00 CF 8A D2 80 46 A2 F2 C0 03 5F D6" },
+]
+
+[expect.cheat.expect-short]
+state = "refused"
+reason = "invalid:override.expect"
+
+[expect.cheat.player]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", value = 7, bytes = "E0 00 80 D2 C0 03 5F D6" },
+]
+
+[expect.cheat.player-too-wide]
+state = "refused"
+reason = "value-out-of-range"
+
+[expect.cheat.bool]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "override", value = 1, bytes = "20 00 80 D2 C0 03 5F D6" },
+]
+
+[expect.cheat.mismatch]
+state = "refused"
+reason = "expect-mismatch"
+
+[expect.cheat.skip-value]
+state = "refused"
+reason = "invalid:override.value"
+
+[expect.cheat.return-no-value]
+state = "refused"
+reason = "invalid:override.value"
+
+[expect.cheat.bad-action]
+state = "refused"
+reason = "invalid:override.action"

@@ -1,0 +1,7 @@
+about = "A pack needs pack.toml at its root."
+
+[zip]
+"example.mncf" = "files/example.mncf"
+
+[expect]
+error = "manifest"

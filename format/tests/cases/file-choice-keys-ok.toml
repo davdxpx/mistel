@@ -1,0 +1,43 @@
+about = "Choice keys in decimal, negative, and with 0x."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[choices.items]
+"1" = "Potion"
+"-2" = "Debt"
+"0x10" = "Ether"
+
+[[cheat]]
+id = "choice"
+name = "choice"
+  [cheat.values.item]
+  type = "s16"
+  choices = "items"
+  default = 16
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "s16"
+  value = "$item"
+'''
+
+[env]
+platform = "switch"
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.choice]
+state = "off"
+reason = ""
+uses = "core"
+ops = [ { kind = "write", bytes = "10 00" } ]

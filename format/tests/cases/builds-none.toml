@@ -1,0 +1,42 @@
+about = "A file may list no builds; cheats that need none still work."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "pattern"
+name = "pattern"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[expect]
+build = ""
+
+[expect.cheat.pattern]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, module = "main", offset = 0x100 },
+]

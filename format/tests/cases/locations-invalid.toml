@@ -1,0 +1,220 @@
+about = "A location that breaks a rule of section 6 turns its cheat off with invalid:<key>."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "two-bases"
+name = "two-bases"
+  [[cheat.write]]
+  at = { module = "main", region = "heap", offset = 0x0 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "no-offset"
+name = "no-offset"
+  [[cheat.write]]
+  at = { module = "main" }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "offset-and-offsets"
+name = "offset-and-offsets"
+  [[cheat.write]]
+  at = { module = "main", offset = 0x0, offsets = { "1.0.2" = 0x0 } }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "address-on-switch"
+name = "address-on-switch"
+  [[cheat.write]]
+  at = { address = 0x1000 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "short-pattern"
+name = "short-pattern"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "wild-start"
+name = "wild-start"
+  [[cheat.patch]]
+  at = { module = "main", find = "?? 12 00 B9" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "wild-end"
+name = "wild-end"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 ??" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "lower-case"
+name = "lower-case"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 b9" }
+  expect = "68 12 00 b9"
+  bytes = "69 12 00 b9"
+
+[[cheat]]
+id = "double-space"
+name = "double-space"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12  00 B9" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "section-without-find"
+name = "section-without-find"
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100, section = "code" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "section-unknown"
+name = "section-unknown"
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9", section = "bss" }
+  expect = "68"
+  bytes = "69"
+
+[[cheat]]
+id = "offsets-unknown-build"
+name = "offsets-unknown-build"
+  [[cheat.write]]
+  at = { module = "main", offsets = { "9.9.9" = 0x100 } }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "negative-offset"
+name = "negative-offset"
+  [[cheat.write]]
+  at = { module = "main", offset = -4 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "empty-path"
+name = "empty-path"
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0, path = [] }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "find-in-region"
+name = "find-in-region"
+  [[cheat.write]]
+  at = { region = "heap", find = "68 12 00 B9" }
+  type = "u32"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9 11 22 33 94" },
+]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = "1.0.2"
+
+[expect.cheat.two-bases]
+state = "refused"
+reason = "invalid:write.at"
+
+[expect.cheat.no-offset]
+state = "refused"
+reason = "invalid:write.at"
+
+[expect.cheat.offset-and-offsets]
+state = "refused"
+reason = "invalid:write.at"
+
+[expect.cheat.address-on-switch]
+state = "refused"
+reason = "invalid:write.at.address"
+
+[expect.cheat.short-pattern]
+state = "refused"
+reason = "invalid:patch.at.find"
+
+[expect.cheat.wild-start]
+state = "refused"
+reason = "invalid:patch.at.find"
+
+[expect.cheat.wild-end]
+state = "refused"
+reason = "invalid:patch.at.find"
+
+[expect.cheat.lower-case]
+state = "off"
+reason = ""
+uses = "core"
+ops = [
+  { kind = "patch", address = 0x8000100, bytes = "69 12 00 B9" },
+]
+
+[expect.cheat.double-space]
+state = "refused"
+reason = "invalid:patch.at.find"
+
+[expect.cheat.section-without-find]
+state = "refused"
+reason = "invalid:patch.at.section"
+
+[expect.cheat.section-unknown]
+state = "refused"
+reason = "invalid:patch.at.section"
+
+[expect.cheat.offsets-unknown-build]
+state = "refused"
+reason = "invalid:write.at.offsets"
+
+[expect.cheat.negative-offset]
+state = "refused"
+reason = "invalid:write.at.offset"
+
+[expect.cheat.empty-path]
+state = "refused"
+reason = "invalid:write.at.path"
+
+[expect.cheat.find-in-region]
+state = "refused"
+reason = "invalid:write.at.find"

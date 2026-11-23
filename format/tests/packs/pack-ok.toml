@@ -1,0 +1,9 @@
+about = "A pack whose files match its manifest."
+
+[zip]
+"pack.toml" = "files/pack.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+signature = "unsigned"
+files = { "example.mncf" = "ok" }

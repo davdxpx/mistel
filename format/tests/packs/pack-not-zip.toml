@@ -1,0 +1,7 @@
+about = "A pack is a ZIP file."
+
+[zip]
+text = "this is not a ZIP file"
+
+[expect]
+error = "zip"

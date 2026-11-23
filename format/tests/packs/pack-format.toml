@@ -1,0 +1,8 @@
+about = "A manifest of another format version is refused."
+
+[zip]
+"pack.toml" = "files/pack-format.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+error = "format"

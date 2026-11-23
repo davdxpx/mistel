@@ -1,0 +1,21 @@
+about = "Two files that name the same build cannot become one file: the error `source`."
+game = "0100000000ABC000"
+
+[[source]]
+build_id = "0123456789ABCDEF"
+version = "1.0.0"
+text = '''
+[Heap]
+04100000 00000010 00000001
+'''
+
+[[source]]
+build_id = "1122334455667788"
+version = "1.0.0"
+text = '''
+[Heap]
+04100000 00000010 00000001
+'''
+
+[expect]
+error = "source"

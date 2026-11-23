@@ -1,0 +1,8 @@
+about = "A path listed twice is refused."
+
+[zip]
+"pack.toml" = "files/pack-twice.toml"
+"example.mncf" = "files/example.mncf"
+
+[expect]
+error = "path:example.mncf"

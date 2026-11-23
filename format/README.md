@@ -27,7 +27,9 @@ The complete schema is the spec.
 | Folder | What | Status |
 |---|---|---|
 | [`spec/`](spec/) | The specification, versioned: [`mncf-1.md`](spec/mncf-1.md) for `mncf/1` | Draft |
-| `readers/<language>/` | Reader libraries: parse, check, resolve a file for one build | Planned, Java and Python first |
+| [`lib/python/`](lib/python/) | The Python library: read and check a file, identify the build, resolve locations, give each cheat its state and reason, check signatures and packs; write files; convert Atmosphère cheats | Version 1 |
+| [`lib/java/`](lib/java/) | The same in Java, for Android (API 33) and the JVM, without dependencies | Version 1 |
+| [`tests/`](tests/) | The conformance suite: made-up files and packs with the results every reader must give | Version 1 |
 
 ## Versions and extensions
 
