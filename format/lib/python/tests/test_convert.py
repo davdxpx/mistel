@@ -420,6 +420,20 @@ made for 1.0.0
         f = mncf.load(convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID).text.encode())
         _, back, _ = convert.to_atmosphere(f, '1.0.0', module(), 'core', mncf.Choices(values={'tickets.value': 7}))
         self.assertIn('04000000 00001008 528000E8', back)          # movz w8, #7
+        # A value the player cannot choose is refused as the reader refuses it; the raw entry is written instead.
+        for bad in ('7', True, -1, 1 << 40):
+            _, back, report = convert.to_atmosphere(f, '1.0.0', module(), 'core',
+                                                    mncf.Choices(values={'tickets.value': bad}))
+            self.assertEqual(report.written, [('tickets', 'raw')], bad)
+            self.assertIn('040A0000 00001008 52986A08', back)
+        f.cheats[0].raw = []
+        _, _, report = convert.to_atmosphere(f, '1.0.0', module(), 'core', mncf.Choices(values={'tickets.value': -1}))
+        self.assertEqual(report.skipped, [('tickets', 'a chosen value the cheat cannot take')])
+
+    def test_compare_reads_the_original_leniently(self):
+        original = '// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n'
+        same, differ, missing = convert.compare(original, '[Heap]\n04100000 00000010 00000001\n')
+        self.assertEqual((same, differ, missing), (['Heap'], [], []))
 
     def test_runtime_lacks_parts_of_the_core_and_rewrote_code(self):
         text = syn.CHEATS

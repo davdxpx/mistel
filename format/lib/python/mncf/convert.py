@@ -18,6 +18,7 @@ from . import encode as enc
 from .model import Condition, Override, Patch, Read, ValueRef, Write
 from .pattern import make_pattern
 from .values import encode as encode_value, fits, hex_bytes
+from .evaluate import Choices, _Refused, _value
 from .write import dumps
 
 RESTORE_NAME = re.compile(r'\b(restore|restores|original|vanilla)\b|\boff\W*\Z', re.I | re.A)
@@ -312,7 +313,7 @@ def _depends(it, c, master, ranges):
     d = it.derived
     if ranges is None or isinstance(d, atm.Unclear) or not c.ops:
         return True
-    if d.reads & (master.derived.writes if not isinstance(master.derived, atm.Unclear) else set(range(16))):
+    if d.reads & master.derived.writes:
         return True
 
     def inside(offset, width=1):
@@ -694,9 +695,17 @@ def _stores(place, data):
 
 
 def _default(c, v, chosen=None):
+    """A value of the cheat: a number, the value the player chose, or the default. A chosen value that the player
+    cannot choose makes the cheat unclear, as the reader refuses it (value-out-of-range)."""
     if not isinstance(v, ValueRef):
         return v
-    return (chosen or {}).get(f'{c.id}.{v.name}', c.values[v.name].default)
+    key = f'{c.id}.{v.name}'
+    if key not in (chosen or {}):
+        return c.values[v.name].default
+    try:
+        return _value(c, v, Choices(values=chosen))
+    except _Refused:
+        raise atm.Unclear('a chosen value the cheat cannot take') from None
 
 
 def _core_words(c, build_key, module, chosen=None):
@@ -771,7 +780,7 @@ def compare(original, regenerated, effects=False):
     has otherwise, or lacks. With effects, code that writes the same bytes at the same places under the same buttons
     and condition, and puts the same back on release, counts as the same."""
     def table(text):
-        return {(e.name, e.master): e for e in atm.parse(text) if e.words and not atm.is_noop(e)}
+        return {(e.name, e.master): e for e in atm.parse(text, []) if e.words and not atm.is_noop(e) and not e.broken}
     a, b = table(original), table(regenerated)
     same, differ, missing = [], [], []
     for k, e in a.items():
