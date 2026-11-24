@@ -1,0 +1,36 @@
+format = "mncf/1"
+name = "Example"
+origin = { format = "ips", name = "example-60fps.zip" }
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "faster"
+name = "Faster"
+default = true
+
+  [cheat.values.value]
+  type = "f32"
+  default = 2.0
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "00 10 2E 1E" }
+  expect = "00 10 2E 1E"
+  encode = { insn = "fmov", width = 32, rd = 0, value = "$value" }
+
+  [[cheat.write]]
+  at = { module = "main", offsets = { "1.0.0" = 0x3010 } }
+  type = "bytes"
+  value = "FF FF FF FF"
+  expect = "00 00 00 00"

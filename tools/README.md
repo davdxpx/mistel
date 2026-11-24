@@ -5,13 +5,13 @@ The `mistel` command for people who make cheats and mods. Python 3.11 or later; 
 | Command | What it does | Status |
 |---|---|---|
 | `mistel check` | Checks an `.mncf` file against the spec. With `--module`, also that every pattern matches exactly once in the game's code module, that `expect` is there, and that `asm` says what the bytes are | Version 1 |
-| `mistel convert` | Turns an Atmosphère cheat file into `.mncf`, keeping every cheat, and an `.mncf` file back into an Atmosphère file for one build | Version 1 |
+| `mistel convert` | Turns an Atmosphère cheat file into `.mncf`, keeping every cheat, and an `.mncf` file back into an Atmosphère file for one build. Also turns the IPS, IPS32 and IPSwitch patch files of a code module into `.mncf` | Version 1 |
 | `mistel pattern` | Makes the shortest byte pattern that finds one place in a code module | Version 1 |
 | `mistel sign`, `mistel verify` | Signs a file or a pack with an author's key, and checks signatures | Version 1 |
 | `mistel pack` | Puts `.mncf` files into an `.mncp` pack, with its manifest signed if a key is given | Version 1 |
 | `mistel keygen` | Makes an Ed25519 key pair, never inside a repository | Version 1 |
 | `mistel port` | Tries a file's patterns on a new build and says which cheats still fit | Planned |
-| `mistel convert` from other emulators' formats and PC cheat tables | | Planned |
+| `mistel convert` from the cheat formats of other platforms' emulators and PC cheat tables | | Planned |
 
 ## Install
 
@@ -44,6 +44,17 @@ mistel convert 1.0.2/<build ID>.txt 1.0.3/<other build ID>.txt --game <title ID>
 - `--module` takes a main NSO, compressed or not; it serves the file of its own build. `--exclude` lists runs of the module whose bytes are not the game's own (hexadecimal offset and length, separated by a tab, one run per line): no `expect` and no pattern come from them.
 - `--origin` names the source (default: the file name), `--author` the authors to name where the file credits nobody. `--no-asm` leaves out `asm`, `--no-values` keeps `movz` and `fmov` patches as bytes.
 - `-v` says for each cheat what it became and why: `pattern`, `build` (offsets for its build), `raw` (with the reason), `restore`.
+
+Patch files (`exefs_patches/<set>/<build ID>.ips`, IPS32, and IPSwitch `.pchtxt`), with the module they patch:
+
+```bash
+mistel convert atmosphere/exefs_patches/60fps/<build ID>.ips --game <title ID> --module <dump>/exefs/main --version <build ID>=1.0.2
+mistel convert 60fps.pchtxt --game <title ID> --module subsdk0=<dump>/exefs/subsdk0 --set "60 FPS"
+```
+
+- A patch file holds no original bytes, so `--module` is required: `expect` comes from it. `NAME=PATH` names a module other than `main`. Each file takes the module of its build ID (from `@nsobid-` or the file name), or the only one given.
+- An IPS file becomes one cheat, on by default, named by its folder in `exefs_patches/` or by `--set`. Each patch of a `.pchtxt` becomes one cheat, named by its comment and on where it is `@enabled`.
+- What a file writes into data becomes a write that is made only while the place holds its original bytes. A patch over bytes that `--exclude` names is left out and named.
 
 Back to Atmosphère for one build:
 

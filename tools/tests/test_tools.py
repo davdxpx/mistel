@@ -171,6 +171,28 @@ class CliTest(unittest.TestCase):
             code, out = self.run_cli('check', str(d / 'x.mncf'), '--module', str(nso))
             self.assertIn('asm.bytes says "ret", the bytes are "nop"', out)
 
+    def test_convert_patch_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            nso = d / 'main.nso'
+            nso.write_bytes(syn.sample_nso())
+            patch = d / 'atmosphere' / 'exefs_patches' / 'Faster' / f'{syn.BUILD_ID}{"0" * 24}.ips'
+            patch.parent.mkdir(parents=True)
+            patch.write_bytes(b'PATCH' + (syn.STR_W8 + 0x100).to_bytes(3, 'big') + b'\x00\x04' +
+                              bytes.fromhex('691200B9') + b'EOF')
+            code, out = self.run_cli('convert', str(patch), '--game', syn.GAME_ID, '-o', str(d / 'p.mncf'))
+            self.assertEqual(code, 1)
+            self.assertIn('patch files need --module', out)
+            code, out = self.run_cli('convert', str(patch), '--game', syn.GAME_ID, '--module', str(nso), '--version',
+                                     f'{syn.BUILD_ID}=1.0.0', '-o', str(d / 'p.mncf'))
+            self.assertEqual(code, 0, out)
+            self.assertIn('1 patches: 1 with patterns', out)
+            text = (d / 'p.mncf').read_text(encoding='utf-8')
+            self.assertIn('name = "Faster"', text)
+            self.assertIn('[builds."1.0.0"]', text)
+            code, out = self.run_cli('check', str(d / 'p.mncf'), '--module', str(nso))
+            self.assertEqual(code, 0, out)
+
 
 if __name__ == '__main__':
     unittest.main()

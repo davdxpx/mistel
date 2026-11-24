@@ -89,6 +89,17 @@ name, text, back = convert.to_atmosphere(mncf.load(conv.text.encode()), '1.0.2')
 - The file keeps Atmosphère's limits: one master entry with the code of every master cheat, at most 127 other entries (group starts and ends count) of at most 256 words; what does not fit is left out with `atmosphere:too-many` or `atmosphere:too-long`. A group is ended where a cheat in no group follows it.
 - `to_atmosphere_all(f, modules=None, prefer='raw', choices=None, prefer_cheats=None)` writes every build of the file, for an export in the Atmosphère layout: a list of `BackFile` with `build`, `name`, `text` and `report`, or `reason` (`atmosphere:module`) for a build without a main module. `modules` maps build keys to their main modules.
 
+Patch files of a code module, IPS, IPS32 and IPSwitch text:
+
+```python
+conv = convert.from_patches(
+    [convert.PatchSource(ips_bytes, module, file_name='exefs_patches/60fps/A1B2C3D4E5F60718.ips', version='1.0.2')],
+    game_id='0100000000ABC000', origin='60fps.zip')
+```
+
+- A patch file holds no original bytes, so the module it patches is required: `expect` comes from it. `module_name` names a module other than `main`; the build ID comes from the file (`@nsobid-`), its name, `build_id` or the module.
+- An IPS file becomes one cheat with `default = true`, named by its patch set (`set_name`, or the folder in `exefs_patches/`); each patch of a `.pchtxt` becomes one cheat, named by its comment and on where it is `@enabled`. Patches get patterns and player values as Atmosphère cheats do; what a file writes into data becomes a write with the original bytes as `expect`. `mncf.patches.read` reads the files themselves.
+
 ## Tests
 
 ```bash
