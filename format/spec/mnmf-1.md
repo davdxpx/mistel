@@ -81,7 +81,11 @@ A `.mnmf` file is a ZIP file as PKWARE's APPNOTE (version 6.3.10) describes it, 
 - No name appears twice. Names are paths (section 2) in UTF-8, and general purpose bit 11 is set when a name has a byte above 0x7F. An entry whose name ends in `/` is a folder and is ignored.
 - A reader MUST support ZIP64 (APPNOTE section 4.5.3), which a mod above 4 GiB or with more than 65,535 entries needs.
 - Each local header agrees with its central directory record in the name, the method, the flags, the sizes and the CRC-32. A reader that reads local headers first, for a list or a streaming install, checks this as soon as it reads the central directory, and refuses a mod where they differ.
-- A Zstandard entry holds one or more frames one after the other, without a dictionary, without skippable frames, and with a window of at most 32 MiB.
+- A Zstandard entry holds one or more Zstandard frames (RFC 8878 section 3.1.1, magic number 0xFD2FB528) one after the other, and nothing else: no skippable frames and no legacy frames. In each frame:
+  - no dictionary is used: the frame header names none (`Dictionary_ID` absent or 0);
+  - the window is at most 32 MiB: `Window_Size` is at most 33,554,432 bytes, and a frame with `Single_Segment_Flag` set has a `Frame_Content_Size` of at most that;
+  - the reserved bit is clear;
+  - a content checksum (`Content_Checksum_Flag`) MAY be there. A reader MAY check it, and refuses the mod where it differs; the entry's SHA-256 (section 4.2) is the check every reader makes.
 
 A writer SHOULD store each entry whose data is already compressed (Zstandard and other compressed game archives, PNG, WebP, audio and video streams) and each entry that compression shrinks by less than 3 %, and SHOULD compress the others with Zstandard. A writer that has no Zstandard MAY deflate them instead. A writer MUST NOT change the bytes of any file: the compression is the container's alone, and it is lossless.
 
@@ -960,7 +964,7 @@ A mod or a pack with one of these errors is not used at all. The reader says the
 
 | Code | Meaning |
 |---|---|
-| `zip` | Not a ZIP file; a name twice; an encrypted entry; a method other than stored, deflate and Zstandard; a data descriptor; a local header that differs from its central directory record; a Zstandard frame with a dictionary, a skippable frame or a window above 32 MiB |
+| `zip` | Not a ZIP file; a name twice; an encrypted entry; a method other than stored, deflate and Zstandard; a data descriptor; a local header that differs from its central directory record; Zstandard data that breaks section 4.1 (a dictionary, a skippable or legacy frame, a window above 32 MiB, the reserved bit set, a content checksum that differs where the reader checks it, or bytes that are not a frame) |
 | `layout` | The manifest is not the first entry at offset 0, or is compressed; the icon is not the second entry, or is compressed; an entry of a part comes before the file table |
 | `size` | The manifest is above 1 MiB, the file table above 64 MiB, or the container has more than 1,048,576 entries |
 | `manifest` | No `mod.toml` (or `pack.toml`) in the container |
