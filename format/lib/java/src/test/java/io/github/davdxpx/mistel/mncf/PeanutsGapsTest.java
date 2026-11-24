@@ -136,6 +136,41 @@ public final class PeanutsGapsTest {
         Check.equal(Collections.singletonMap("tickets", "a chosen value the cheat cannot take"), back.skipped());
     }
 
+    public static void testEveryBuildBackWithReasons() throws Exception {
+        Source a = source(ModuleTest.module(true),
+                "[Money]\n04000000 00001008 B9001269\n[Heap]\n04100000 00000010 00000001\n");
+        Source b = source(null, "[Heap]\n04100000 00000010 00000002\n", "1122334455667788", "1.0.1");
+        MncfFile f = Mncf.load(Fixtures.utf8(Converter.fromAtmosphere(Arrays.asList(a, b), options()).text()));
+        List<Converter.BuildExport> out = Converter.toAtmosphereAll(f,
+                Collections.singletonMap("1.0.1", ModuleTest.module(true)), "core", null);
+        Check.equal(Arrays.asList("1.0.0", "1.0.1"), Arrays.asList(out.get(0).build(), out.get(1).build()));
+        Check.equal(Arrays.asList(Synthetic.BUILD_ID + ".txt", "1122334455667788.txt"),
+                Arrays.asList(out.get(0).export().fileName(), out.get(1).export().fileName()));
+        Map<String, String> written = new LinkedHashMap<>();
+        written.put("money", "raw");                                   // no module for 1.0.0: its raw entry
+        written.put("heap", "core");
+        Check.equal(written, out.get(0).export().written());
+        written.clear();
+        written.put("money", "core");
+        written.put("heap-2", "core");
+        Check.equal(written, out.get(1).export().written());
+        Check.equal(Collections.singletonMap("heap", "build-unknown"), out.get(1).export().reasons());
+        out = Converter.toAtmosphereAll(f, null, "raw", null);           // without modules: no pattern is found
+        Map<String, String> reasons = new LinkedHashMap<>();
+        reasons.put("money", "atmosphere:no-module");
+        reasons.put("heap", "build-unknown");
+        Check.equal(reasons, out.get(1).export().reasons());
+        Check.isTrue(out.get(1).export().text().contains("04100000 00000010 00000002"), out.get(1).export().text());
+        String text = Converter.fromAtmosphere(a, options()).text();
+        int at = text.indexOf("[[cheat]]");
+        MncfFile g = Mncf.load(Fixtures.utf8(text.substring(0, at) + "[builds.sub]\nmodules = { subsdk0 = "
+                + "\"0F0E0D0C0B0A0908\" }\n\n" + text.substring(at)));
+        out = Converter.toAtmosphereAll(g, null, "raw", null);
+        Check.equal(Arrays.asList("1.0.0", "sub"), Arrays.asList(out.get(0).build(), out.get(1).build()));
+        Check.equal(Arrays.asList(null, "atmosphere:module"), Arrays.asList(out.get(0).reason(), out.get(1).reason()));
+        Check.isTrue(out.get(1).export() == null, "a build without main has no file");
+    }
+
     public static void testCompareReadsTheOriginalLeniently() throws Exception {
         String original = "// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n";
         Converter.Comparison cmp = Converter.compare(original, "[Heap]\n04100000 00000010 00000001\n", false);

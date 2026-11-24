@@ -190,6 +190,27 @@ file = "convert-module.mncf"  # the exact text, written without `asm` fields
 # or error = "atmosphere" (a file that is not an Atmosphère cheat file) or "source" (files that cannot be one)
 ```
 
+A case back to Atmosphère (`back-*.toml`) has `to = "atmosphere"` and writes one build of an `.mncf` file:
+
+```toml
+to = "atmosphere"
+mncf = "convert-module.mncf"     # the file, in this folder; or text = '''...''' for the file itself
+build = "1.0.0"                  # the build to write: one the file names, or another one with its module
+prefer = "core"                  # optional: core operations where a cheat has them (default "raw")
+values = { "speed.value" = 4.0 } # optional: values the player chose
+module_build_id = "1122334455667788"   # optional: the build ID of the module, for a build the file does not name
+
+[module]                         # optional: the main module of that build, as in a conversion case
+size = 0x3800
+code = [0x0, 0x2000]
+
+[expect]
+name = "0123456789ABCDEF.txt"    # the file name
+file = "back-core.txt"           # the exact text
+written = { money = "core", loop = "raw" }          # how each cheat was written
+reasons = { once = "atmosphere:run" }               # the reason each other cheat was left out (spec, section 15)
+```
+
 ## Signed cases
 
 `sign.py` signs `cases/signed.mncf` and `packs/files/pack.toml` into the `signed-*.mncf` and `pack-signed*.toml` files, some of them changed after signing on purpose. It signs with the keys of RFC 8032, section 7.1, tests 1 and 2. Those keys are public test data: anyone can sign with them, so they prove nothing outside this suite.

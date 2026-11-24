@@ -627,7 +627,24 @@ Where the code is only plain writes, the converter writes core operations: a wri
 - Registers carry over from one Atmosphère cheat to the next in the same frame. A cheat that reads a register an earlier cheat sets keeps only its `raw` entry.
 - A cheat requires the master only where it depends on it, so that the cheats that find their place by pattern keep working on a build the master does not fit. A cheat depends on the master when it reads a register the master sets, or writes, reads through or branches into bytes the master writes, and also when it keeps only its `raw` entry or when what the master does is not known: in Atmosphère the master always runs first.
 
-Back to Atmosphère for one build, a converter writes each cheat's `raw` entry for that build where there is one, and its core operations otherwise: a patch as stores of its bytes, a pointer path as loads, a `hold` as a key block whose else branch writes back the original bytes of the patches, a single `when` on a fixed place as a memory condition. What Atmosphère cannot say (monitors, `toggle`, `press`, the run modes other than `"on"`, conditions on pointer paths) is left out and named.
+Back to Atmosphère, a converter writes each build of the file as its own `<build ID>.txt`, named by the build's main module; a build that names no main module cannot be one. It can also write a build the file does not name, from the cheats' patterns, given that build's main module. For each cheat it writes the `raw` entry for that build where there is one, and its core operations otherwise, or where the caller prefers them: a patch as stores of its bytes, a pointer path as loads, a `hold` as a key block whose else branch writes back the original bytes of the patches, an action as a key block, a single `when` on a fixed place as a memory condition, and each value as the player chose it or as its default. Where the core operations cannot be written, a cheat with a `raw` entry for the build falls back to it.
+
+With the build's main module, the converter finds the patterns and checks each patch and override stub against `expect`, as a runtime would, because Atmosphère code writes without looking; without the module, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same in every library: the reader's reason where the cheat has a problem of its own (Appendix B), and otherwise the first of these that it meets, in the order of section 11.2:
+
+| Reason | The cheat |
+|---|---|
+| `build-unknown` | Has neither an offset nor a `raw` entry for this build |
+| `pattern-not-found`, `pattern-ambiguous` | Has a pattern that does not match exactly once in the module |
+| `expect-mismatch`, `outside` | Patches other bytes in the module than `expect`, or past its end |
+| `value-out-of-range` | Has a value, as the player chose it or as its default, that it cannot take or that its instruction or write cannot hold |
+| `atmosphere:no-module` | Has a pattern, and no module was given to search |
+| `atmosphere:run`, `atmosphere:monitor` | Runs `"once"` or `"timed"`, or is a monitor |
+| `atmosphere:toggle` | Has `toggle` buttons |
+| `atmosphere:condition` | Has conditions Atmosphère cannot say: more than one, `match`, `trigger` or `interval`, or one on a pointer path or of a float type |
+| `atmosphere:action` | Is an action that writes data or has `hold` |
+| `atmosphere:override` | Has an override without `expect`, or one whose stub is longer than it |
+| `atmosphere:module`, `atmosphere:region`, `atmosphere:address` | Has a place Atmosphère cannot name: in a module other than main, in a region without a memory code, or at an absolute address |
+| `atmosphere:empty` | Has nothing to write |
 
 Converters for the cheat and patch files of other emulators and for PC cheat tables follow the same rule: keep every cheat, and write core operations where the meaning is clear.
 

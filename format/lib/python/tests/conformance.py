@@ -220,22 +220,40 @@ def pack_results(case, folder):
             'files': {f.path: f.status for f in pack.files}}
 
 
+def case_module(m, build_id):
+    """The code module a conversion case describes: zero bytes with the given pieces, its sections and runs."""
+    from mncf.module import CodeModule
+    image = bytearray(m['size'])
+    for piece in m.get('bytes', []):
+        raw = bytes.fromhex(piece['hex'])
+        image[piece['at']:piece['at'] + len(raw)] = raw
+    sections = {k: tuple(m[k]) for k in ('code', 'rodata', 'data') if k in m}
+    return CodeModule(bytes(image), sections, build_id, m.get('text_size'), [tuple(r) for r in m.get('exclude', [])])
+
+
+def back_results(case, folder):
+    """What the converter writes back to Atmosphère for one build: the file's name and text, how each cheat was
+    written, and the reason each other cheat was left out."""
+    from mncf import convert
+    text = case['text'] if 'text' in case else (folder / case['mncf']).read_text(encoding='utf-8')
+    f = mncf.load(text.encode('utf-8'))
+    module = case_module(case['module'], case.get('module_build_id')) if 'module' in case else None
+    choices = mncf.Choices(values=dict(case['values'])) if 'values' in case else None
+    try:
+        name, out, report = convert.to_atmosphere(f, case['build'], module, case.get('prefer', 'raw'), choices)
+    except ValueError as e:
+        return {'error': getattr(e, 'code', 'error')}
+    return {'name': name, 'text': out, 'written': dict(report.written), 'reasons': dict(report.reasons)}
+
+
 def convert_results(case, folder):
     """The text the converter writes for a conversion case, or the error it gives."""
     from mncf import convert
-    from mncf.module import CodeModule
+    if case.get('to') == 'atmosphere':
+        return back_results(case, folder)
     sources = []
     for src in case['source']:
-        module = None
-        m = src.get('module')
-        if m is not None:
-            image = bytearray(m['size'])
-            for piece in m.get('bytes', []):
-                raw = bytes.fromhex(piece['hex'])
-                image[piece['at']:piece['at'] + len(raw)] = raw
-            sections = {k: tuple(m[k]) for k in ('code', 'rodata', 'data') if k in m}
-            module = CodeModule(bytes(image), sections, src['build_id'], m.get('text_size'),
-                                [tuple(r) for r in m.get('exclude', [])])
+        module = case_module(src['module'], src['build_id']) if 'module' in src else None
         sources.append(convert.Source(src['build_id'], src['text'], version=src.get('version'), module=module,
                                       build_key=src.get('build_key')))
     try:
@@ -269,7 +287,8 @@ def compare(expect, got, folder=None):
         if expect.get('error') != got.get('error'):
             problems.append(f'error: expected {expect.get("error")!r}, got {got.get("error")!r}')
         return problems
-    for key, default in (('signature', 'unsigned'), ('signers', []), ('build', ''), ('warnings', [])):
+    for key, default in (('signature', 'unsigned'), ('signers', []), ('build', ''), ('warnings', []), ('name', None),
+                         ('written', {}), ('reasons', {})):
         if key not in got:
             continue
         want = sorted(expect.get(key, default)) if key == 'warnings' else expect.get(key, default)

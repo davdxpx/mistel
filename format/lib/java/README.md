@@ -115,7 +115,16 @@ back.fileName();                                        // "0123456789ABCDEF.txt
 back.text();
 Converter.toAtmosphere(file, "1.0.1", newModule, "core", choices);   // a build the file does not name: from
                                                                       // its patterns, with the player's values
+back.written();                                         // per cheat id: "raw" or "core"
+back.reasons();                                         // per cheat left out: "build-unknown", "atmosphere:toggle"...
+
+for (Converter.BuildExport b : Converter.toAtmosphereAll(file, modulesByBuild, "raw", choices)) {
+    b.build();                                          // every build of the file, in its order
+    b.export();                                         // its Export, or null with reason() "atmosphere:module"
+}
 ```
+
+Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say.
 
 A converted cheat requires the master code only where it depends on it. Lines of a source that are neither names nor code go into the file's `about`, and an entry whose code mixes words with other text is left out and named there.
 

@@ -1,0 +1,25 @@
+about = "Back to Atmosphère from the core operations, with the module to find the patterns; a cheat without core operations Atmosphère can say falls back to its raw entry."
+to = "atmosphere"
+mncf = "convert-module.mncf"
+build = "1.0.0"
+prefer = "core"
+values = { "speed.value" = 4.0 }
+
+[module]                     # the main module of the build
+size = 0x3800
+code = [0x0, 0x2000]
+rodata = [0x2000, 0x3000]
+data = [0x3000, 0x3800]
+text_size = 0x1FE0
+bytes = [
+  { at = 0x1000, hex = "FD 7B BF A9 FD 03 00 91 68 12 00 B9 40 00 00 94 08 00 00 90 00 21 40 B9 FD 7B C1 A8 C0 03 5F D6" },
+  { at = 0x1800, hex = "00 10 2E 1E 08 20 20 1E" },
+  { at = 0x2100, hex = "45 78 61 6D 70 6C 65 00" },
+  { at = 0x3020, hex = "00 01 00 10 00 00 00 00" },
+]
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-core.txt"
+written = { "master-setup" = "core", money = "core", "branch-away" = "core", "data-flag" = "core", "heap-value" = "core", pointer = "core", "hold-a" = "core", condition = "core", "cave-jump" = "core", speed = "core", loop = "raw" }
+reasons = {}

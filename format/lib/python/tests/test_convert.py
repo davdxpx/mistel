@@ -430,6 +430,25 @@ made for 1.0.0
         _, _, report = convert.to_atmosphere(f, '1.0.0', module(), 'core', mncf.Choices(values={'tickets.value': -1}))
         self.assertEqual(report.skipped, [('tickets', 'a chosen value the cheat cannot take')])
 
+    def test_every_build_back_with_reasons(self):
+        a = source(module(), text='[Money]\n04000000 00001008 B9001269\n[Heap]\n04100000 00000010 00000001\n')
+        b = source(text='[Heap]\n04100000 00000010 00000002\n', build_id='1122334455667788', version='1.0.1')
+        f = mncf.load(convert.from_atmosphere([a, b], game_id=syn.GAME_ID).text.encode())
+        out = convert.to_atmosphere_all(f, {'1.0.1': module()}, prefer='core')
+        self.assertEqual([(x.build, x.name, x.reason) for x in out],
+                         [('1.0.0', f'{syn.BUILD_ID}.txt', None), ('1.0.1', '1122334455667788.txt', None)])
+        self.assertEqual(dict(out[0].report.written), {'money': 'raw', 'heap': 'core'})      # no module: raw
+        self.assertEqual(dict(out[1].report.written), {'money': 'core', 'heap-2': 'core'})
+        self.assertEqual(out[1].report.reasons, {'heap': 'build-unknown'})
+        out = convert.to_atmosphere_all(f)                     # without modules: Money's pattern cannot be found
+        self.assertEqual(out[1].report.reasons, {'money': 'atmosphere:no-module', 'heap': 'build-unknown'})
+        self.assertIn('04100000 00000010 00000002', out[1].text)
+        doc = tomllib.loads(convert.from_atmosphere(a, game_id=syn.GAME_ID).text)
+        doc['builds']['sub'] = {'modules': {'subsdk0': '0F0E0D0C0B0A0908'}}
+        g = mncf.load(write.dumps(doc).encode())
+        self.assertEqual([(x.build, x.reason) for x in convert.to_atmosphere_all(g)],
+                         [('1.0.0', None), ('sub', 'atmosphere:module')])
+
     def test_compare_reads_the_original_leniently(self):
         original = '// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n'
         same, differ, missing = convert.compare(original, '[Heap]\n04100000 00000010 00000001\n')

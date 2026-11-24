@@ -169,39 +169,82 @@ public final class ConformanceTest {
             return packResults(c.table, c.folder);
         }
         if (c.kind.equals("convert")) {
-            return convertResults(c.table);
+            return convertResults(c.table, c.folder);
         }
         return fileResults(c.table, c.folder);
     }
 
+    /** The code module a conversion case describes: zero bytes with the given pieces, its sections and runs. */
+    static CodeModule caseModule(Map<String, Object> m, String buildId) {
+        byte[] image = new byte[((Long) m.get("size")).intValue()];
+        for (Object piece : list(m.get("bytes"))) {
+            Map<String, Object> p = map(piece);
+            byte[] raw = hex((String) p.get("hex"));
+            System.arraycopy(raw, 0, image, ((Long) p.get("at")).intValue(), raw.length);
+        }
+        Map<String, long[]> sections = new LinkedHashMap<>();
+        for (String k : new String[] {"code", "rodata", "data"}) {
+            if (m.containsKey(k)) {
+                List<Object> range = list(m.get(k));
+                sections.put(k, new long[] {(Long) range.get(0), (Long) range.get(1)});
+            }
+        }
+        List<CodeModule.Run> exclude = new ArrayList<>();
+        for (Object r : list(m.get("exclude"))) {
+            List<Object> run = list(r);
+            exclude.add(new CodeModule.Run((Long) run.get(0), (Long) run.get(1)));
+        }
+        return new CodeModule(image, sections, buildId, (Long) m.get("text_size"), exclude);
+    }
+
+    /**
+     * What the converter writes back to Atmosphère for one build: the file's name and text,
+     * how each cheat was written, and the reason each other cheat was left out.
+     */
+    static Map<String, Object> backResults(Map<String, Object> c, File folder) throws IOException {
+        String text = c.containsKey("text") ? (String) c.get("text")
+                : readText(new File(folder, (String) c.get("mncf")));
+        Map<String, Object> out = new LinkedHashMap<>();
+        MncfFile f;
+        try {
+            f = Mncf.load(text.getBytes(StandardCharsets.UTF_8));
+        } catch (MncfException e) {
+            out.put("error", e.code());
+            return out;
+        }
+        CodeModule module = c.containsKey("module")
+                ? caseModule(map(c.get("module")), (String) c.get("module_build_id")) : null;
+        Choices choices = null;
+        if (c.containsKey("values")) {
+            Choices.Builder b = Choices.builder();
+            for (Map.Entry<String, Object> e : map(c.get("values")).entrySet()) {
+                b.value(e.getKey(), e.getValue());
+            }
+            choices = b.build();
+        }
+        try {
+            Converter.Export export = Converter.toAtmosphere(f, (String) c.get("build"), module,
+                    c.containsKey("prefer") ? (String) c.get("prefer") : "raw", choices);
+            out.put("name", export.fileName());
+            out.put("text", export.text());
+            out.put("written", new LinkedHashMap<Object, Object>(export.written()));
+            out.put("reasons", new LinkedHashMap<Object, Object>(export.reasons()));
+        } catch (IllegalArgumentException e) {
+            out.put("error", "error");
+        }
+        return out;
+    }
+
     /** The text the converter writes for a conversion case, or the code of the error it gives. */
-    static Map<String, Object> convertResults(Map<String, Object> c) {
+    static Map<String, Object> convertResults(Map<String, Object> c, File folder) throws IOException {
+        if ("atmosphere".equals(c.get("to"))) {
+            return backResults(c, folder);
+        }
         List<Source> sources = new ArrayList<>();
         for (Object item : list(c.get("source"))) {
             Map<String, Object> src = map(item);
-            CodeModule module = null;
-            Map<String, Object> m = src.containsKey("module") ? map(src.get("module")) : null;
-            if (m != null) {
-                byte[] image = new byte[((Long) m.get("size")).intValue()];
-                for (Object piece : list(m.get("bytes"))) {
-                    Map<String, Object> p = map(piece);
-                    byte[] raw = hex((String) p.get("hex"));
-                    System.arraycopy(raw, 0, image, ((Long) p.get("at")).intValue(), raw.length);
-                }
-                Map<String, long[]> sections = new LinkedHashMap<>();
-                for (String k : new String[] {"code", "rodata", "data"}) {
-                    if (m.containsKey(k)) {
-                        List<Object> range = list(m.get(k));
-                        sections.put(k, new long[] {(Long) range.get(0), (Long) range.get(1)});
-                    }
-                }
-                List<CodeModule.Run> exclude = new ArrayList<>();
-                for (Object r : list(m.get("exclude"))) {
-                    List<Object> run = list(r);
-                    exclude.add(new CodeModule.Run((Long) run.get(0), (Long) run.get(1)));
-                }
-                module = new CodeModule(image, sections, (String) src.get("build_id"), (Long) m.get("text_size"), exclude);
-            }
+            CodeModule module = src.containsKey("module")
+                    ? caseModule(map(src.get("module")), (String) src.get("build_id")) : null;
             sources.add(Source.builder((String) src.get("build_id"), (String) src.get("text"))
                     .version((String) src.get("version")).module(module).buildKey((String) src.get("build_key")).build());
         }
@@ -746,7 +789,8 @@ public final class ConformanceTest {
             return problems;
         }
         Object[][] defaults = {{"signature", "unsigned"}, {"signers", new ArrayList<>()}, {"build", ""},
-            {"warnings", new ArrayList<>()}};
+            {"warnings", new ArrayList<>()}, {"name", null}, {"written", new LinkedHashMap<>()},
+            {"reasons", new LinkedHashMap<>()}};
         for (Object[] d : defaults) {
             String key = (String) d[0];
             if (!got.containsKey(key)) {

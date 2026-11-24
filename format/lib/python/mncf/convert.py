@@ -611,6 +611,30 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
 class BackReport:
     written: list = field(default_factory=list)     # (cheat id, 'raw' or 'core')
     skipped: list = field(default_factory=list)     # (cheat id, why)
+    reasons: dict = field(default_factory=dict)     # cheat id -> the stable reason it was skipped (section 15)
+
+
+@dataclass
+class BackFile:
+    """One build of a file as an Atmosphère cheat file, or the reason it cannot be one."""
+    build: str
+    name: str = None          # <build ID>.txt
+    text: str = None
+    report: BackReport = None
+    reason: str = None        # atmosphere:module for a build that names no main module
+
+
+def to_atmosphere_all(f, modules=None, prefer='raw', choices=None):
+    """Every build of a loaded file as an Atmosphère cheat file, in the file's order: a list of BackFile.
+    `modules` maps build keys to the main module of that build, for the cheats that find their place by pattern."""
+    out = []
+    for key, build in f.builds.items():
+        if 'main' not in build.modules:
+            out.append(BackFile(key, reason='atmosphere:module'))
+            continue
+        name, text, report = to_atmosphere(f, key, (modules or {}).get(key), prefer, choices)
+        out.append(BackFile(key, name, text, report))
+    return out
 
 
 def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
@@ -634,10 +658,15 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
     for c in sorted(f.cheats, key=lambda c: not c.master):
         if c.problem:
             report.skipped.append((c.id, c.problem))
+            report.reasons[c.id] = c.problem
             continue
         raw = next((r for r in c.raw if r.build == build_key and r.syntax == 'atmosphere'), None)
         raw_lines = [line.strip() for line in raw.code.strip().splitlines() if line.strip()] if raw else None
         lines, how = None, None
+        if raw is None and not c.ops:
+            report.skipped.append((c.id, 'only raw code, for other builds'))
+            report.reasons[c.id] = 'build-unknown'
+            continue
         if raw is not None and prefer == 'raw':
             lines, how = raw_lines, 'raw'
         else:
@@ -646,6 +675,7 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
             except atm.Unclear as u:
                 if raw is None:
                     report.skipped.append((c.id, u.why))
+                    report.reasons[c.id] = u.code or 'atmosphere:unclear'
                     continue
                 lines, how = raw_lines, 'raw'
         if c.group != group and not c.master:
@@ -662,25 +692,26 @@ def _base(loc, build_key, module):
         return loc.offset
     if loc.kind in ('module-builds', 'region-builds'):
         if build_key not in loc.offsets:
-            raise atm.Unclear('a location without an offset for this build')
+            raise atm.Unclear('a location without an offset for this build', 'build-unknown')
         return loc.offsets[build_key]
     if loc.kind == 'pattern':
         if module is None:
-            raise atm.Unclear('a pattern, and no module to search')
+            raise atm.Unclear('a pattern, and no module to search', 'atmosphere:no-module')
         from .evaluate import find_all
         found = find_all(module.reader_module(), loc.find, loc.section, 2)
         if len(found) != 1:
-            raise atm.Unclear('a pattern that does not match exactly once in the module')
+            raise atm.Unclear('a pattern that does not match exactly once in the module',
+                              'pattern-ambiguous' if found else 'pattern-not-found')
         return found[0] + loc.offset
-    raise atm.Unclear('an absolute address')
+    raise atm.Unclear('an absolute address', 'atmosphere:address')
 
 
 def _place(loc, build_key, module):
     if loc.module and loc.module != 'main':
-        raise atm.Unclear('a module other than main')
+        raise atm.Unclear('a module other than main', 'atmosphere:module')
     region = 'main' if loc.module else loc.region
     if region not in atm.REGION_CODES:
-        raise atm.Unclear(f'the region {region}')
+        raise atm.Unclear(f'the region {region}', 'atmosphere:region')
     path = tuple(p & atm.MASK64 for p in loc.path) if loc.path else None
     return atm.Place(region, _base(loc, build_key, module), path)
 
@@ -705,14 +736,27 @@ def _default(c, v, chosen=None):
     try:
         return _value(c, v, Choices(values=chosen))
     except _Refused:
-        raise atm.Unclear('a chosen value the cheat cannot take') from None
+        raise atm.Unclear('a chosen value the cheat cannot take', 'value-out-of-range') from None
+
+
+def _check_module(module, place, expect, data):
+    """With the module, the bytes a patch or stub writes over must be `expect`, or `data` already: Atmosphère code
+    writes without looking. Not where the module's bytes are not its own."""
+    if module is None or place.path or place.region != 'main':
+        return
+    if place.offset + len(expect) > len(module.image):
+        raise atm.Unclear('a place past the end of the module', 'outside')
+    here = module.image[place.offset:place.offset + len(expect)]
+    if here not in (expect, data) and not module.excluded(place.offset, len(expect)):
+        raise atm.Unclear('the module holds other bytes than `expect`', 'expect-mismatch')
 
 
 def _core_words(c, build_key, module, chosen=None):
     if c.run not in ('on', 'action'):
-        raise atm.Unclear(f'run = "{c.run}" has no Atmosphère form')
+        raise atm.Unclear(f'run = "{c.run}" has no Atmosphère form',
+                          'atmosphere:monitor' if c.run == 'monitor' else 'atmosphere:run')
     if c.toggle:
-        raise atm.Unclear('toggle buttons have no Atmosphère form')
+        raise atm.Unclear('toggle buttons have no Atmosphère form', 'atmosphere:toggle')
     stores, restores, conds = [], [], []
     for op in c.ops:
         if isinstance(op, Patch):
@@ -721,9 +765,10 @@ def _core_words(c, build_key, module, chosen=None):
                 e = op.encode
                 data = enc.arm64_imm(e['insn'], e['width'], e['rd'], _default(c, e['value'], chosen))
                 if data is None:
-                    raise atm.Unclear('a value its instruction cannot hold')
+                    raise atm.Unclear('a value its instruction cannot hold', 'value-out-of-range')
             else:
                 data = op.bytes
+            _check_module(module, place, op.expect, data)
             stores += _stores(place, data)
             restores += _stores(place, op.expect)
         elif isinstance(op, Write):
@@ -732,24 +777,25 @@ def _core_words(c, build_key, module, chosen=None):
             if isinstance(v, bool):
                 v = int(v)
             if op.type != 'bytes' and not fits(op.type, v):
-                raise atm.Unclear('a value its write cannot hold')
+                raise atm.Unclear('a value its write cannot hold', 'value-out-of-range')
             data = op.value if op.type == 'bytes' else encode_value(op.type, v, 'little')
             stores += _stores(place, data)
         elif isinstance(op, Override):
             if op.expect is None:
-                raise atm.Unclear('an override without expect')
+                raise atm.Unclear('an override without expect', 'atmosphere:override')
             stub = enc.arm64_stub(op.action, int(_default(c, op.value, chosen) or 0))
             if len(stub) > len(op.expect):
-                raise atm.Unclear('an override whose stub is longer than expect')
+                raise atm.Unclear('an override whose stub is longer than expect', 'atmosphere:override')
             place = _place(op.function, build_key, module)
+            _check_module(module, place, op.expect[:len(stub)], stub)
             stores += _stores(place, stub)
             restores += _stores(place, op.expect[:len(stub)])
         elif isinstance(op, Condition):
             conds.append(op)
         elif isinstance(op, Read):
-            raise atm.Unclear('a monitor has no Atmosphère form')
+            raise atm.Unclear('a monitor has no Atmosphère form', 'atmosphere:monitor')
     if len(conds) > 1 or (conds and (c.match != 'all' or c.trigger != 'while' or c.interval != 1)):
-        raise atm.Unclear('conditions that Atmosphère cannot say')
+        raise atm.Unclear('conditions that Atmosphère cannot say', 'atmosphere:condition')
     body = [w for s in stores for w in atm.store_words(s.place, s.width, s.value)]
     if conds:
         cond = conds[0]
@@ -757,11 +803,11 @@ def _core_words(c, build_key, module, chosen=None):
         value = _default(c, cond.value, chosen)
         if place.path or cond.type not in ('u8', 'u16', 'u32', 'u64') or cond.op not in atm.CONDITION_CODES or \
                 not isinstance(value, int) or isinstance(value, bool):
-            raise atm.Unclear('a condition that Atmosphère cannot say')
+            raise atm.Unclear('a condition that Atmosphère cannot say', 'atmosphere:condition')
         body = atm.condition_words(place, int(cond.type[1:]) // 8, cond.op, value) + body + [0x20000000]
     if c.run == 'action':
         if c.hold or any(isinstance(op, Write) for op in c.ops):
-            raise atm.Unclear('an action with writes or hold has no Atmosphère form')
+            raise atm.Unclear('an action with writes or hold has no Atmosphère form', 'atmosphere:action')
         words = [0x80000000 | atm.buttons_to_keys(c.press)] + body + [0x20000000]
     elif c.hold:
         words = [0x80000000 | atm.buttons_to_keys(c.hold)] + body
@@ -771,7 +817,7 @@ def _core_words(c, build_key, module, chosen=None):
     else:
         words = body
     if not words:
-        raise atm.Unclear('nothing to write')
+        raise atm.Unclear('nothing to write', 'atmosphere:empty')
     return words
 
 
@@ -807,5 +853,5 @@ def _effect(entry):
     return d.keys, cond, d.released is not None, written
 
 
-__all__ = ['Source', 'ConvertError', 'Conversion', 'Report', 'CheatReport', 'from_atmosphere', 'to_atmosphere', 'compare',
-           'authors_of', 'slug']
+__all__ = ['Source', 'ConvertError', 'Conversion', 'Report', 'CheatReport', 'BackReport', 'BackFile', 'from_atmosphere',
+           'to_atmosphere', 'to_atmosphere_all', 'compare', 'authors_of', 'slug']

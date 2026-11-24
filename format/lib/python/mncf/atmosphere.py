@@ -27,11 +27,14 @@ class AtmosphereError(ValueError):
 
 
 class Unclear(Exception):
-    """The opcodes do something the core operations of .mncf cannot say plainly. `why` says what."""
+    """The opcodes do something the core operations of .mncf cannot say plainly, or, back to Atmosphère, a cheat
+    does something Atmosphère cannot say. `why` says what; `code`, back to Atmosphère, is its stable reason
+    (section 15)."""
 
-    def __init__(self, why):
+    def __init__(self, why, code=None):
         super().__init__(why)
         self.why = why
+        self.code = code
 
 
 @dataclass
