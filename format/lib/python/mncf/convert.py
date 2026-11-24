@@ -714,14 +714,15 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None, prefer_
             report.written.append((c.id, how))
             continue
         # A new group starts with its name as an empty entry; a group is ended by an entry with only 20000001.
+        cheat_group = c.group or None
         marks = []
-        if c.group != group:
-            marks = [(c.group, False, [])] if c.group else [(group, False, ['20000001'])]
-        if sum(1 for e in entries if not e[1]) + len(marks) + 1 > ATM_ENTRIES:
+        if cheat_group != group:
+            marks = [(cheat_group, False, [])] if cheat_group else [(group, False, ['20000001'])]
+        if len(entries) + len(marks) + 1 > ATM_ENTRIES:
             leave_out(c, 'more entries than an Atmosphère file holds', 'atmosphere:too-many')
             continue
         entries += marks
-        group = c.group
+        group = cheat_group
         entries.append((c.name, False, lines))
         report.written.append((c.id, how))
     if master is not None:
