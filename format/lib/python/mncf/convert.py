@@ -17,7 +17,7 @@ from . import arm64, atmosphere as atm, disasm
 from . import encode as enc
 from .model import Condition, Override, Patch, Read, ValueRef, Write
 from .pattern import make_pattern
-from .values import encode as encode_value, fits, hex_bytes
+from .values import encode as encode_value, fits, hex_bytes, type_size
 from .evaluate import Choices, _Refused, _value
 from .write import dumps
 
@@ -624,7 +624,7 @@ class BackFile:
     reason: str = None        # atmosphere:module for a build that names no main module
 
 
-def to_atmosphere_all(f, modules=None, prefer='raw', choices=None):
+def to_atmosphere_all(f, modules=None, prefer='raw', choices=None, prefer_cheats=None):
     """Every build of a loaded file as an Atmosphère cheat file, in the file's order: a list of BackFile.
     `modules` maps build keys to the main module of that build, for the cheats that find their place by pattern."""
     out = []
@@ -632,17 +632,32 @@ def to_atmosphere_all(f, modules=None, prefer='raw', choices=None):
         if 'main' not in build.modules:
             out.append(BackFile(key, reason='atmosphere:module'))
             continue
-        name, text, report = to_atmosphere(f, key, (modules or {}).get(key), prefer, choices)
+        name, text, report = to_atmosphere(f, key, (modules or {}).get(key), prefer, choices, prefer_cheats)
         out.append(BackFile(key, name, text, report))
     return out
 
 
-def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
+ATM_ENTRIES = 127       # entries of an Atmosphère file besides the master: dmnt holds 0x80, the first the master
+ATM_WORDS = 0x100       # words of one entry
+
+
+def _word_count(lines):
+    return sum(len(line.split()) for line in lines)
+
+
+def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None, prefer_cheats=None):
     """(file name, text, BackReport): the cheats of a loaded file as an Atmosphère cheat file for one build.
 
     A build the file does not name is written from its patterns, with the module of that build; its file name is the
     module's build ID. `choices` gives the values the player chose (mncf.Choices); else the defaults are written.
+    `prefer` is "raw" or "core" for every cheat, and `prefer_cheats` maps cheat ids to "raw" or "core" where one
+    cheat should differ, such as one whose value the player set. The file keeps Atmosphère's limits: one master entry
+    with the code of every master cheat, and up to 127 other entries of up to 256 words each.
     """
+    modes = dict(prefer_cheats or {})
+    for mode in [prefer, *modes.values()]:
+        if mode not in ('raw', 'core'):
+            raise ValueError(f'prefer is "raw" or "core", not {mode!r}')
     build = f.builds.get(build_key)
     if build is not None:
         main_id = build.modules.get('main')
@@ -654,7 +669,12 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
         raise ValueError(f'the file has no build {build_key!r}, and no module of it is given')
     chosen = choices.values if choices is not None else {}
     report = BackReport()
-    entries, group = [], None
+    entries, group, master, master_lines = [], None, None, []
+
+    def leave_out(c, why, code):
+        report.skipped.append((c.id, why))
+        report.reasons[c.id] = code
+
     for c in sorted(f.cheats, key=lambda c: not c.master):
         if c.problem:
             report.skipped.append((c.id, c.problem))
@@ -667,23 +687,45 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
             report.skipped.append((c.id, 'only raw code, for other builds'))
             report.reasons[c.id] = 'build-unknown'
             continue
-        if raw is not None and prefer == 'raw':
+        if raw is not None and modes.get(c.id, prefer) == 'raw':
             lines, how = raw_lines, 'raw'
         else:
             try:
-                lines, how = atm.format_words(_core_words(c, build_key, module, chosen)), 'core'
+                words = _core_words(c, build_key, module, chosen)
+                if len(words) > ATM_WORDS:
+                    raise atm.Unclear(f'{len(words)} words, more than an Atmosphère entry holds',
+                                      'atmosphere:too-long')
+                lines, how = atm.format_words(words), 'core'
             except atm.Unclear as u:
                 if raw is None:
-                    report.skipped.append((c.id, u.why))
-                    report.reasons[c.id] = u.code or 'atmosphere:unclear'
+                    leave_out(c, u.why, u.code or 'atmosphere:unclear')
                     continue
                 lines, how = raw_lines, 'raw'
-        if c.group != group and not c.master:
-            group = c.group
-            if group:
-                entries.append((group, False, []))
-        entries.append((c.name, c.master, lines))
+        if _word_count(lines) > ATM_WORDS:
+            leave_out(c, f'{_word_count(lines)} words, more than an Atmosphère entry holds', 'atmosphere:too-long')
+            continue
+        if c.master:
+            # Atmosphère runs one master entry: the code of every master cheat goes into it, in file order.
+            if _word_count(master_lines) + _word_count(lines) > ATM_WORDS:
+                leave_out(c, 'the master entry would hold more than 256 words', 'atmosphere:too-long')
+                continue
+            master = master or c.name
+            master_lines += lines
+            report.written.append((c.id, how))
+            continue
+        # A new group starts with its name as an empty entry; a group is ended by an entry with only 20000001.
+        marks = []
+        if c.group != group:
+            marks = [(c.group, False, [])] if c.group else [(group, False, ['20000001'])]
+        if sum(1 for e in entries if not e[1]) + len(marks) + 1 > ATM_ENTRIES:
+            leave_out(c, 'more entries than an Atmosphère file holds', 'atmosphere:too-many')
+            continue
+        entries += marks
+        group = c.group
+        entries.append((c.name, False, lines))
         report.written.append((c.id, how))
+    if master is not None:
+        entries.insert(0, (master, True, master_lines))
     return f'{main_id[:16].upper()}.txt', atm.write_file(entries), report
 
 
@@ -739,6 +781,14 @@ def _default(c, v, chosen=None):
         raise atm.Unclear('a chosen value the cheat cannot take', 'value-out-of-range') from None
 
 
+def _check_inside(module, place, length):
+    """With the module, a place in main lies inside it with every byte read or written there: for a pointer path,
+    the pointer at its base."""
+    if module is not None and place.region == 'main' and place.offset + (8 if place.path else length) > \
+            len(module.image):
+        raise atm.Unclear('a place past the end of the module', 'outside')
+
+
 def _check_module(module, place, expect, data):
     """With the module, the bytes a patch or stub writes over must be `expect`, or `data` already: Atmosphère code
     writes without looking. Not where the module's bytes are not its own."""
@@ -761,6 +811,7 @@ def _core_words(c, build_key, module, chosen=None):
     for op in c.ops:
         if isinstance(op, Patch):
             place = _place(op.at, build_key, module)
+            _check_inside(module, place, len(op.expect))
             if op.encode is not None:
                 e = op.encode
                 data = enc.arm64_imm(e['insn'], e['width'], e['rd'], _default(c, e['value'], chosen))
@@ -773,6 +824,7 @@ def _core_words(c, build_key, module, chosen=None):
             restores += _stores(place, op.expect)
         elif isinstance(op, Write):
             place = _place(op.at, build_key, module)
+            _check_inside(module, place, len(op.value) if op.type == 'bytes' else type_size(op.type))
             v = _default(c, op.value, chosen)
             if isinstance(v, bool):
                 v = int(v)
@@ -787,6 +839,7 @@ def _core_words(c, build_key, module, chosen=None):
             if len(stub) > len(op.expect):
                 raise atm.Unclear('an override whose stub is longer than expect', 'atmosphere:override')
             place = _place(op.function, build_key, module)
+            _check_inside(module, place, len(stub))
             _check_module(module, place, op.expect[:len(stub)], stub)
             stores += _stores(place, stub)
             restores += _stores(place, op.expect[:len(stub)])
@@ -800,6 +853,7 @@ def _core_words(c, build_key, module, chosen=None):
     if conds:
         cond = conds[0]
         place = _place(cond.at, build_key, module)
+        _check_inside(module, place, type_size(cond.type) if cond.type in ('u8', 'u16', 'u32', 'u64') else 1)
         value = _default(c, cond.value, chosen)
         if place.path or cond.type not in ('u8', 'u16', 'u32', 'u64') or cond.op not in atm.CONDITION_CODES or \
                 not isinstance(value, int) or isinstance(value, bool):

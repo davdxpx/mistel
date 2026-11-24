@@ -449,6 +449,21 @@ made for 1.0.0
         self.assertEqual([(x.build, x.reason) for x in convert.to_atmosphere_all(g)],
                          [('1.0.0', None), ('sub', 'atmosphere:module')])
 
+    def test_back_per_cheat_and_round_trip_of_groups(self):
+        conv = convert.from_atmosphere(source(module()), game_id=syn.GAME_ID, asm=False)
+        f = mncf.load(conv.text.encode())
+        with self.assertRaises(ValueError):
+            convert.to_atmosphere(f, '1.0.0', prefer_cheats={'money': 'best'})
+        _, text, report = convert.to_atmosphere(f, '1.0.0', module(), prefer_cheats={'money': 'core'})
+        self.assertEqual([how for cid, how in report.written if cid in ('money', 'branch-away')], ['core', 'raw'])
+        # The groups come back as they were: the cheats after a group's end are in no group again. (The master
+        # entry comes first in Atmosphère, outside every group.)
+        again = mncf.load(convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID).text.encode())
+        self.assertEqual([(c.id, c.group) for c in again.cheats if not c.master],
+                         [(c.id, c.group) for c in f.cheats if not c.master])
+        out = convert.to_atmosphere_all(f, prefer_cheats={'money': 'core'})
+        self.assertEqual(out[0].report.reasons, {})                     # Money falls back to raw: no module
+
     def test_compare_reads_the_original_leniently(self):
         original = '// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n'
         same, differ, missing = convert.compare(original, '[Heap]\n04100000 00000010 00000001\n')

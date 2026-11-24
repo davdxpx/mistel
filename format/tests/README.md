@@ -198,6 +198,7 @@ mncf = "convert-module.mncf"     # the file, in this folder; or text = '''...'''
 build = "1.0.0"                  # the build to write: one the file names, or another one with its module
 prefer = "core"                  # optional: core operations where a cheat has them (default "raw")
 values = { "speed.value" = 4.0 } # optional: values the player chose
+prefer_cheats = { money = "core" }     # optional: "raw" or "core" for single cheats
 module_build_id = "1122334455667788"   # optional: the build ID of the module, for a build the file does not name
 
 [module]                         # optional: the main module of that build, as in a conversion case

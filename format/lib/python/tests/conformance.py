@@ -240,7 +240,8 @@ def back_results(case, folder):
     module = case_module(case['module'], case.get('module_build_id')) if 'module' in case else None
     choices = mncf.Choices(values=dict(case['values'])) if 'values' in case else None
     try:
-        name, out, report = convert.to_atmosphere(f, case['build'], module, case.get('prefer', 'raw'), choices)
+        name, out, report = convert.to_atmosphere(f, case['build'], module, case.get('prefer', 'raw'), choices,
+                                                  case.get('prefer_cheats'))
     except ValueError as e:
         return {'error': getattr(e, 'code', 'error')}
     return {'name': name, 'text': out, 'written': dict(report.written), 'reasons': dict(report.reasons)}

@@ -1,0 +1,1238 @@
+about = "Atmosphère's limits: the code of both master cheats in one master entry, a group ended where an ungrouped cheat follows, at most 127 other entries (atmosphere:too-many) of at most 256 words (atmosphere:too-long); a pointer path whose base lies past the module (outside); and one cheat written from its core operations, with the player's value, while the others use their raw entries."
+to = "atmosphere"
+build = "1.0.0"
+prefer_cheats = { tickets = "core" }
+values = { "tickets.count" = 7 }
+text = '''
+format = "mncf/1"
+name = "Back limits"
+extensions = { optional = ["raw/1", "arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "setup-a"
+name = "Setup A"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "setup-b"
+name = "Setup B"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x4 }
+  type = "u32"
+  value = 2
+
+[[cheat]]
+id = "in-group"
+name = "In group"
+group = "Group"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x8 }
+  type = "u32"
+  value = 3
+
+[[cheat]]
+id = "after-group"
+name = "After group"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0xC }
+  type = "u32"
+  value = 4
+
+[[cheat]]
+id = "tickets"
+name = "Tickets"
+
+  [cheat.values.count]
+  type = "u16"
+  default = 5
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x1008 }
+  expect = "68 12 00 B9"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$count" }
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001008 528000A8
+"""
+
+[[cheat]]
+id = "far-pointer"
+name = "Far pointer"
+
+  [[cheat.write]]
+  at = { module = "main", offset = 0x37FC, path = [0x10] }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "long"
+name = "Long"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x100 }
+  type = "bytes"
+  value = "11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11"
+
+[[cheat]]
+id = "filler-1"
+name = "Filler 1"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1004 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "filler-2"
+name = "Filler 2"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1008 }
+  type = "u32"
+  value = 2
+
+[[cheat]]
+id = "filler-3"
+name = "Filler 3"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x100C }
+  type = "u32"
+  value = 3
+
+[[cheat]]
+id = "filler-4"
+name = "Filler 4"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1010 }
+  type = "u32"
+  value = 4
+
+[[cheat]]
+id = "filler-5"
+name = "Filler 5"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1014 }
+  type = "u32"
+  value = 5
+
+[[cheat]]
+id = "filler-6"
+name = "Filler 6"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1018 }
+  type = "u32"
+  value = 6
+
+[[cheat]]
+id = "filler-7"
+name = "Filler 7"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x101C }
+  type = "u32"
+  value = 7
+
+[[cheat]]
+id = "filler-8"
+name = "Filler 8"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1020 }
+  type = "u32"
+  value = 8
+
+[[cheat]]
+id = "filler-9"
+name = "Filler 9"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1024 }
+  type = "u32"
+  value = 9
+
+[[cheat]]
+id = "filler-10"
+name = "Filler 10"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1028 }
+  type = "u32"
+  value = 10
+
+[[cheat]]
+id = "filler-11"
+name = "Filler 11"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x102C }
+  type = "u32"
+  value = 11
+
+[[cheat]]
+id = "filler-12"
+name = "Filler 12"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1030 }
+  type = "u32"
+  value = 12
+
+[[cheat]]
+id = "filler-13"
+name = "Filler 13"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1034 }
+  type = "u32"
+  value = 13
+
+[[cheat]]
+id = "filler-14"
+name = "Filler 14"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1038 }
+  type = "u32"
+  value = 14
+
+[[cheat]]
+id = "filler-15"
+name = "Filler 15"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x103C }
+  type = "u32"
+  value = 15
+
+[[cheat]]
+id = "filler-16"
+name = "Filler 16"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1040 }
+  type = "u32"
+  value = 16
+
+[[cheat]]
+id = "filler-17"
+name = "Filler 17"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1044 }
+  type = "u32"
+  value = 17
+
+[[cheat]]
+id = "filler-18"
+name = "Filler 18"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1048 }
+  type = "u32"
+  value = 18
+
+[[cheat]]
+id = "filler-19"
+name = "Filler 19"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x104C }
+  type = "u32"
+  value = 19
+
+[[cheat]]
+id = "filler-20"
+name = "Filler 20"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1050 }
+  type = "u32"
+  value = 20
+
+[[cheat]]
+id = "filler-21"
+name = "Filler 21"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1054 }
+  type = "u32"
+  value = 21
+
+[[cheat]]
+id = "filler-22"
+name = "Filler 22"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1058 }
+  type = "u32"
+  value = 22
+
+[[cheat]]
+id = "filler-23"
+name = "Filler 23"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x105C }
+  type = "u32"
+  value = 23
+
+[[cheat]]
+id = "filler-24"
+name = "Filler 24"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1060 }
+  type = "u32"
+  value = 24
+
+[[cheat]]
+id = "filler-25"
+name = "Filler 25"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1064 }
+  type = "u32"
+  value = 25
+
+[[cheat]]
+id = "filler-26"
+name = "Filler 26"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1068 }
+  type = "u32"
+  value = 26
+
+[[cheat]]
+id = "filler-27"
+name = "Filler 27"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x106C }
+  type = "u32"
+  value = 27
+
+[[cheat]]
+id = "filler-28"
+name = "Filler 28"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1070 }
+  type = "u32"
+  value = 28
+
+[[cheat]]
+id = "filler-29"
+name = "Filler 29"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1074 }
+  type = "u32"
+  value = 29
+
+[[cheat]]
+id = "filler-30"
+name = "Filler 30"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1078 }
+  type = "u32"
+  value = 30
+
+[[cheat]]
+id = "filler-31"
+name = "Filler 31"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x107C }
+  type = "u32"
+  value = 31
+
+[[cheat]]
+id = "filler-32"
+name = "Filler 32"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1080 }
+  type = "u32"
+  value = 32
+
+[[cheat]]
+id = "filler-33"
+name = "Filler 33"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1084 }
+  type = "u32"
+  value = 33
+
+[[cheat]]
+id = "filler-34"
+name = "Filler 34"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1088 }
+  type = "u32"
+  value = 34
+
+[[cheat]]
+id = "filler-35"
+name = "Filler 35"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x108C }
+  type = "u32"
+  value = 35
+
+[[cheat]]
+id = "filler-36"
+name = "Filler 36"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1090 }
+  type = "u32"
+  value = 36
+
+[[cheat]]
+id = "filler-37"
+name = "Filler 37"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1094 }
+  type = "u32"
+  value = 37
+
+[[cheat]]
+id = "filler-38"
+name = "Filler 38"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1098 }
+  type = "u32"
+  value = 38
+
+[[cheat]]
+id = "filler-39"
+name = "Filler 39"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x109C }
+  type = "u32"
+  value = 39
+
+[[cheat]]
+id = "filler-40"
+name = "Filler 40"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10A0 }
+  type = "u32"
+  value = 40
+
+[[cheat]]
+id = "filler-41"
+name = "Filler 41"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10A4 }
+  type = "u32"
+  value = 41
+
+[[cheat]]
+id = "filler-42"
+name = "Filler 42"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10A8 }
+  type = "u32"
+  value = 42
+
+[[cheat]]
+id = "filler-43"
+name = "Filler 43"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10AC }
+  type = "u32"
+  value = 43
+
+[[cheat]]
+id = "filler-44"
+name = "Filler 44"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10B0 }
+  type = "u32"
+  value = 44
+
+[[cheat]]
+id = "filler-45"
+name = "Filler 45"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10B4 }
+  type = "u32"
+  value = 45
+
+[[cheat]]
+id = "filler-46"
+name = "Filler 46"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10B8 }
+  type = "u32"
+  value = 46
+
+[[cheat]]
+id = "filler-47"
+name = "Filler 47"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10BC }
+  type = "u32"
+  value = 47
+
+[[cheat]]
+id = "filler-48"
+name = "Filler 48"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10C0 }
+  type = "u32"
+  value = 48
+
+[[cheat]]
+id = "filler-49"
+name = "Filler 49"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10C4 }
+  type = "u32"
+  value = 49
+
+[[cheat]]
+id = "filler-50"
+name = "Filler 50"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10C8 }
+  type = "u32"
+  value = 50
+
+[[cheat]]
+id = "filler-51"
+name = "Filler 51"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10CC }
+  type = "u32"
+  value = 51
+
+[[cheat]]
+id = "filler-52"
+name = "Filler 52"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10D0 }
+  type = "u32"
+  value = 52
+
+[[cheat]]
+id = "filler-53"
+name = "Filler 53"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10D4 }
+  type = "u32"
+  value = 53
+
+[[cheat]]
+id = "filler-54"
+name = "Filler 54"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10D8 }
+  type = "u32"
+  value = 54
+
+[[cheat]]
+id = "filler-55"
+name = "Filler 55"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10DC }
+  type = "u32"
+  value = 55
+
+[[cheat]]
+id = "filler-56"
+name = "Filler 56"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10E0 }
+  type = "u32"
+  value = 56
+
+[[cheat]]
+id = "filler-57"
+name = "Filler 57"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10E4 }
+  type = "u32"
+  value = 57
+
+[[cheat]]
+id = "filler-58"
+name = "Filler 58"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10E8 }
+  type = "u32"
+  value = 58
+
+[[cheat]]
+id = "filler-59"
+name = "Filler 59"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10EC }
+  type = "u32"
+  value = 59
+
+[[cheat]]
+id = "filler-60"
+name = "Filler 60"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10F0 }
+  type = "u32"
+  value = 60
+
+[[cheat]]
+id = "filler-61"
+name = "Filler 61"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10F4 }
+  type = "u32"
+  value = 61
+
+[[cheat]]
+id = "filler-62"
+name = "Filler 62"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10F8 }
+  type = "u32"
+  value = 62
+
+[[cheat]]
+id = "filler-63"
+name = "Filler 63"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10FC }
+  type = "u32"
+  value = 63
+
+[[cheat]]
+id = "filler-64"
+name = "Filler 64"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1100 }
+  type = "u32"
+  value = 64
+
+[[cheat]]
+id = "filler-65"
+name = "Filler 65"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1104 }
+  type = "u32"
+  value = 65
+
+[[cheat]]
+id = "filler-66"
+name = "Filler 66"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1108 }
+  type = "u32"
+  value = 66
+
+[[cheat]]
+id = "filler-67"
+name = "Filler 67"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x110C }
+  type = "u32"
+  value = 67
+
+[[cheat]]
+id = "filler-68"
+name = "Filler 68"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1110 }
+  type = "u32"
+  value = 68
+
+[[cheat]]
+id = "filler-69"
+name = "Filler 69"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1114 }
+  type = "u32"
+  value = 69
+
+[[cheat]]
+id = "filler-70"
+name = "Filler 70"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1118 }
+  type = "u32"
+  value = 70
+
+[[cheat]]
+id = "filler-71"
+name = "Filler 71"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x111C }
+  type = "u32"
+  value = 71
+
+[[cheat]]
+id = "filler-72"
+name = "Filler 72"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1120 }
+  type = "u32"
+  value = 72
+
+[[cheat]]
+id = "filler-73"
+name = "Filler 73"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1124 }
+  type = "u32"
+  value = 73
+
+[[cheat]]
+id = "filler-74"
+name = "Filler 74"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1128 }
+  type = "u32"
+  value = 74
+
+[[cheat]]
+id = "filler-75"
+name = "Filler 75"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x112C }
+  type = "u32"
+  value = 75
+
+[[cheat]]
+id = "filler-76"
+name = "Filler 76"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1130 }
+  type = "u32"
+  value = 76
+
+[[cheat]]
+id = "filler-77"
+name = "Filler 77"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1134 }
+  type = "u32"
+  value = 77
+
+[[cheat]]
+id = "filler-78"
+name = "Filler 78"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1138 }
+  type = "u32"
+  value = 78
+
+[[cheat]]
+id = "filler-79"
+name = "Filler 79"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x113C }
+  type = "u32"
+  value = 79
+
+[[cheat]]
+id = "filler-80"
+name = "Filler 80"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1140 }
+  type = "u32"
+  value = 80
+
+[[cheat]]
+id = "filler-81"
+name = "Filler 81"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1144 }
+  type = "u32"
+  value = 81
+
+[[cheat]]
+id = "filler-82"
+name = "Filler 82"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1148 }
+  type = "u32"
+  value = 82
+
+[[cheat]]
+id = "filler-83"
+name = "Filler 83"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x114C }
+  type = "u32"
+  value = 83
+
+[[cheat]]
+id = "filler-84"
+name = "Filler 84"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1150 }
+  type = "u32"
+  value = 84
+
+[[cheat]]
+id = "filler-85"
+name = "Filler 85"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1154 }
+  type = "u32"
+  value = 85
+
+[[cheat]]
+id = "filler-86"
+name = "Filler 86"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1158 }
+  type = "u32"
+  value = 86
+
+[[cheat]]
+id = "filler-87"
+name = "Filler 87"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x115C }
+  type = "u32"
+  value = 87
+
+[[cheat]]
+id = "filler-88"
+name = "Filler 88"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1160 }
+  type = "u32"
+  value = 88
+
+[[cheat]]
+id = "filler-89"
+name = "Filler 89"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1164 }
+  type = "u32"
+  value = 89
+
+[[cheat]]
+id = "filler-90"
+name = "Filler 90"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1168 }
+  type = "u32"
+  value = 90
+
+[[cheat]]
+id = "filler-91"
+name = "Filler 91"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x116C }
+  type = "u32"
+  value = 91
+
+[[cheat]]
+id = "filler-92"
+name = "Filler 92"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1170 }
+  type = "u32"
+  value = 92
+
+[[cheat]]
+id = "filler-93"
+name = "Filler 93"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1174 }
+  type = "u32"
+  value = 93
+
+[[cheat]]
+id = "filler-94"
+name = "Filler 94"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1178 }
+  type = "u32"
+  value = 94
+
+[[cheat]]
+id = "filler-95"
+name = "Filler 95"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x117C }
+  type = "u32"
+  value = 95
+
+[[cheat]]
+id = "filler-96"
+name = "Filler 96"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1180 }
+  type = "u32"
+  value = 96
+
+[[cheat]]
+id = "filler-97"
+name = "Filler 97"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1184 }
+  type = "u32"
+  value = 97
+
+[[cheat]]
+id = "filler-98"
+name = "Filler 98"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1188 }
+  type = "u32"
+  value = 98
+
+[[cheat]]
+id = "filler-99"
+name = "Filler 99"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x118C }
+  type = "u32"
+  value = 99
+
+[[cheat]]
+id = "filler-100"
+name = "Filler 100"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1190 }
+  type = "u32"
+  value = 100
+
+[[cheat]]
+id = "filler-101"
+name = "Filler 101"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1194 }
+  type = "u32"
+  value = 101
+
+[[cheat]]
+id = "filler-102"
+name = "Filler 102"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x1198 }
+  type = "u32"
+  value = 102
+
+[[cheat]]
+id = "filler-103"
+name = "Filler 103"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x119C }
+  type = "u32"
+  value = 103
+
+[[cheat]]
+id = "filler-104"
+name = "Filler 104"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11A0 }
+  type = "u32"
+  value = 104
+
+[[cheat]]
+id = "filler-105"
+name = "Filler 105"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11A4 }
+  type = "u32"
+  value = 105
+
+[[cheat]]
+id = "filler-106"
+name = "Filler 106"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11A8 }
+  type = "u32"
+  value = 106
+
+[[cheat]]
+id = "filler-107"
+name = "Filler 107"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11AC }
+  type = "u32"
+  value = 107
+
+[[cheat]]
+id = "filler-108"
+name = "Filler 108"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11B0 }
+  type = "u32"
+  value = 108
+
+[[cheat]]
+id = "filler-109"
+name = "Filler 109"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11B4 }
+  type = "u32"
+  value = 109
+
+[[cheat]]
+id = "filler-110"
+name = "Filler 110"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11B8 }
+  type = "u32"
+  value = 110
+
+[[cheat]]
+id = "filler-111"
+name = "Filler 111"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11BC }
+  type = "u32"
+  value = 111
+
+[[cheat]]
+id = "filler-112"
+name = "Filler 112"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11C0 }
+  type = "u32"
+  value = 112
+
+[[cheat]]
+id = "filler-113"
+name = "Filler 113"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11C4 }
+  type = "u32"
+  value = 113
+
+[[cheat]]
+id = "filler-114"
+name = "Filler 114"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11C8 }
+  type = "u32"
+  value = 114
+
+[[cheat]]
+id = "filler-115"
+name = "Filler 115"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11CC }
+  type = "u32"
+  value = 115
+
+[[cheat]]
+id = "filler-116"
+name = "Filler 116"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11D0 }
+  type = "u32"
+  value = 116
+
+[[cheat]]
+id = "filler-117"
+name = "Filler 117"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11D4 }
+  type = "u32"
+  value = 117
+
+[[cheat]]
+id = "filler-118"
+name = "Filler 118"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11D8 }
+  type = "u32"
+  value = 118
+
+[[cheat]]
+id = "filler-119"
+name = "Filler 119"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11DC }
+  type = "u32"
+  value = 119
+
+[[cheat]]
+id = "filler-120"
+name = "Filler 120"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11E0 }
+  type = "u32"
+  value = 120
+
+[[cheat]]
+id = "filler-121"
+name = "Filler 121"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11E4 }
+  type = "u32"
+  value = 121
+
+[[cheat]]
+id = "filler-122"
+name = "Filler 122"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11E8 }
+  type = "u32"
+  value = 122
+
+[[cheat]]
+id = "filler-123"
+name = "Filler 123"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11EC }
+  type = "u32"
+  value = 123
+
+[[cheat]]
+id = "filler-124"
+name = "Filler 124"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11F0 }
+  type = "u32"
+  value = 124
+
+[[cheat]]
+id = "filler-125"
+name = "Filler 125"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x11F4 }
+  type = "u32"
+  value = 125
+'''
+
+[module]                     # the main module of the build
+size = 0x3800
+code = [0x0, 0x2000]
+rodata = [0x2000, 0x3000]
+data = [0x3000, 0x3800]
+text_size = 0x1FE0
+bytes = [
+  { at = 0x1000, hex = "FD 7B BF A9 FD 03 00 91 68 12 00 B9 40 00 00 94 08 00 00 90 00 21 40 B9 FD 7B C1 A8 C0 03 5F D6" },
+  { at = 0x1800, hex = "00 10 2E 1E 08 20 20 1E" },
+  { at = 0x2100, hex = "45 78 61 6D 70 6C 65 00" },
+  { at = 0x3020, hex = "00 01 00 10 00 00 00 00" },
+]
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-limits.txt"
+written = { "setup-a" = "core", "setup-b" = "core", "in-group" = "core", "after-group" = "core", tickets = "core", "filler-1" = "core", "filler-2" = "core", "filler-3" = "core", "filler-4" = "core", "filler-5" = "core", "filler-6" = "core", "filler-7" = "core", "filler-8" = "core", "filler-9" = "core", "filler-10" = "core", "filler-11" = "core", "filler-12" = "core", "filler-13" = "core", "filler-14" = "core", "filler-15" = "core", "filler-16" = "core", "filler-17" = "core", "filler-18" = "core", "filler-19" = "core", "filler-20" = "core", "filler-21" = "core", "filler-22" = "core", "filler-23" = "core", "filler-24" = "core", "filler-25" = "core", "filler-26" = "core", "filler-27" = "core", "filler-28" = "core", "filler-29" = "core", "filler-30" = "core", "filler-31" = "core", "filler-32" = "core", "filler-33" = "core", "filler-34" = "core", "filler-35" = "core", "filler-36" = "core", "filler-37" = "core", "filler-38" = "core", "filler-39" = "core", "filler-40" = "core", "filler-41" = "core", "filler-42" = "core", "filler-43" = "core", "filler-44" = "core", "filler-45" = "core", "filler-46" = "core", "filler-47" = "core", "filler-48" = "core", "filler-49" = "core", "filler-50" = "core", "filler-51" = "core", "filler-52" = "core", "filler-53" = "core", "filler-54" = "core", "filler-55" = "core", "filler-56" = "core", "filler-57" = "core", "filler-58" = "core", "filler-59" = "core", "filler-60" = "core", "filler-61" = "core", "filler-62" = "core", "filler-63" = "core", "filler-64" = "core", "filler-65" = "core", "filler-66" = "core", "filler-67" = "core", "filler-68" = "core", "filler-69" = "core", "filler-70" = "core", "filler-71" = "core", "filler-72" = "core", "filler-73" = "core", "filler-74" = "core", "filler-75" = "core", "filler-76" = "core", "filler-77" = "core", "filler-78" = "core", "filler-79" = "core", "filler-80" = "core", "filler-81" = "core", "filler-82" = "core", "filler-83" = "core", "filler-84" = "core", "filler-85" = "core", "filler-86" = "core", "filler-87" = "core", "filler-88" = "core", "filler-89" = "core", "filler-90" = "core", "filler-91" = "core", "filler-92" = "core", "filler-93" = "core", "filler-94" = "core", "filler-95" = "core", "filler-96" = "core", "filler-97" = "core", "filler-98" = "core", "filler-99" = "core", "filler-100" = "core", "filler-101" = "core", "filler-102" = "core", "filler-103" = "core", "filler-104" = "core", "filler-105" = "core", "filler-106" = "core", "filler-107" = "core", "filler-108" = "core", "filler-109" = "core", "filler-110" = "core", "filler-111" = "core", "filler-112" = "core", "filler-113" = "core", "filler-114" = "core", "filler-115" = "core", "filler-116" = "core", "filler-117" = "core", "filler-118" = "core", "filler-119" = "core", "filler-120" = "core", "filler-121" = "core", "filler-122" = "core" }
+reasons = { "far-pointer" = "outside", long = "atmosphere:too-long", "filler-123" = "atmosphere:too-many", "filler-124" = "atmosphere:too-many", "filler-125" = "atmosphere:too-many" }
