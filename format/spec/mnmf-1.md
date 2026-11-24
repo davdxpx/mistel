@@ -277,6 +277,8 @@ Unknown tags are shown as they are.
 
 Every picture is lossless: a PNG (ISO/IEC 15948) without animation, that is without an `acTL` chunk, or a lossless WebP (RFC 9649): a `VP8L` bitstream, without a `VP8 ` bitstream and without animation. Colours are sRGB. Each picture is at most 16 MiB and has the size its key gives.
 
+One exception keeps screenshots as they were taken: a gallery picture (its `image`, never its `thumb`) MAY be a JPEG (ISO/IEC 10918-1, baseline or progressive) exactly as the console or the game captured it. Turning it into a PNG would only make it larger, never better. A packer MUST NOT re-encode a JPEG, and MUST NOT turn any picture into one.
+
 A picture that breaks a rule of this section is a warning (`image:<key>`) and is not shown. Pictures never stop a mod from working.
 
 ### 9.2 Logo, icon and banner
@@ -704,7 +706,7 @@ A converter (`mistel mod convert`, and the MIT libraries for runtimes that impor
 | pchtxt patches | `.pchtxt` files with an `@nsobid-<build ID>` line | Code patches (section 20.3) |
 | A Trinity mod | `romfs/arc/data.trpfd` beside other RomFS files | The index is left out, and the parts name `trinity-trpfd/1` |
 | Cheats | `cheats/<build ID>.txt` | An `.mncf` file, as `mncf/1` section 15 says, in an optional part |
-| Pictures and texts | Images, and readme or credits text files, beside the mod's folders | Gallery pictures, where they are PNG or lossless WebP, a square one of at least 512 pixels as the logo; `about` and `authors` from the texts |
+| Pictures and texts | Images, and readme or credits text files, beside the mod's folders | Gallery pictures, where they are PNG, lossless WebP, or JPEG as captured; a square one of at least 512 pixels as the logo, scaled and stored losslessly; `about` and `authors` from the texts |
 
 ### 20.2 Splitting an archive into mods, parts and choices
 
