@@ -12,16 +12,16 @@ import tomllib
 
 from . import ed25519, encode, platforms, signature
 from .engine import Change, CheatState, Engine, Pass, Shown
-from .evaluate import CAPABILITIES, Choices, CheatResult, Evaluation, Module, ResolvedOp, Runtime, evaluate, find_all, \
-    identify
+from .evaluate import CAPABILITIES, FEATURES, Choices, CheatResult, Evaluation, Module, ResolvedOp, Runtime, evaluate, \
+    find_all, identify
 from .model import MncfError, MncfFile, SignatureResult
 from .schema import KNOWN_EXTENSIONS, build_file
 from .signature import TrustList, key_id, read_trust_list
 
 __all__ = ['load', 'evaluate', 'identify', 'find_all', 'Runtime', 'Module', 'Choices', 'Evaluation', 'CheatResult',
            'ResolvedOp', 'Engine', 'Pass', 'Change', 'CheatState', 'Shown', 'MncfError', 'MncfFile', 'SignatureResult',
-           'TrustList', 'key_id', 'read_trust_list', 'KNOWN_EXTENSIONS', 'CAPABILITIES', 'ed25519', 'encode', 'platforms',
-           'signature']
+           'TrustList', 'key_id', 'read_trust_list', 'KNOWN_EXTENSIONS', 'CAPABILITIES', 'FEATURES', 'ed25519',
+           'encode', 'platforms', 'signature']
 
 
 def decode(data):

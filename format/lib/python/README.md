@@ -30,6 +30,7 @@ for c in ev.cheats:
 - `f.signature` is `verified`, `unsigned`, `unknown-key`, `invalid` or `revoked`. A `TrustList` holds the keys a runtime trusts (`trust(name, public_key)`) and the key ids it no longer trusts (`revoke(key_id)`); `mncf.read_trust_list(text)` reads one from a trust list file (`mncf-keys/1`, such as Mistel's own [`docs/keys.toml`](../../../docs/keys.toml)).
 - Files and pack entries of more than 16 MiB, packs of more than 4,096 entries and more than 256 MiB in all are refused with `size`, whatever a ZIP header claims, so that a hostile pack cannot fill a runtime's memory.
 - `Runtime` says what the runtime can do: `capabilities` (section 11.1), `extensions` (default `raw/1` and `arm64-imm/1`), `raw_syntaxes`, `arch`, `held` buttons, and `build` for a runtime that names its build itself.
+- A runtime that does not have a part of the core yet names it in `unsupported`, out of `mncf.FEATURES` (`run.once`, `hold`, `override` and so on); the cheats that use it are refused with `runtime:unsupported:<key>`. A runtime that rewrote code for its own reasons gives those places in `rewritten`, as `{'main': [(offset, length)]}`; a patch or override stub over them is refused with `runtime:rewritten`.
 - Each operation comes back resolved: a patch's address, `expect` and `bytes` (for `arm64-imm/1`, the encoded instruction), a write's bytes in the platform's byte order, an override's stub, a condition's address and value.
 - `mncf.pack.read_pack(data, trust)` reads a pack: its manifest's signature result and each listed file with its status `ok`, `hash` or `missing`.
 
@@ -82,7 +83,9 @@ name, text, back = convert.to_atmosphere(mncf.load(conv.text.encode()), '1.0.2')
 - Every cheat keeps its Atmosphère code as a `raw/1` entry, and gets core operations where its code is plain writes: patches, writes, pointer paths, `hold`, `when`, master cheats, groups. With the module, patches get `expect` from it and a pattern wherever the same bytes mean the same at another place; `movz` and `fmov` patches become values the player sets (`arm64-imm/1`; `values=False` keeps them as bytes).
 - Several files, one per build, become one file with all their builds; cheats that do the same in each are one cheat.
 - `authors` are the people the source credits; the caller's `authors` are only used where it credits nobody. `origin` records the source's format and name.
-- `conv.report` says for each cheat what it became (`pattern`, `build`, `raw` with the reason, or `restore` for an entry that was dropped) and why.
+- A cheat requires the master code only where it depends on it, so that the cheats that find their place by pattern keep working on a build the master does not fit. Lines of a source that are neither names nor code go into the file's `about`; an entry whose code mixes words with other text is left out and named there. EdiZon's `[--SectionStart:X--]` and `[--SectionEnd:X--]` mark groups.
+- `conv.report` says for each cheat what it became (`pattern`, `build`, `raw` with the reason, `restore` for an entry that was dropped, or `unreadable` for one that was left out) and why; `conv.report.notes` holds the lines that are not code.
+- `to_atmosphere(f, build, module=None, prefer='raw', choices=None)` writes one build back: one the file names, or, with its module, a build it does not name, from the cheats' patterns. `prefer='core'` writes core operations where a cheat has them; `choices` (`mncf.Choices`) gives the values the player chose, and a value the cheat cannot take falls back to the raw entry or skips the cheat.
 
 ## Tests
 
