@@ -44,7 +44,6 @@ master = true
 id = "money"
 name = "Money"
 group = "Section A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", find = "68 12 00 B9" }
@@ -69,7 +68,6 @@ requires = ["master-setup"]
 id = "branch-away"
 name = "Branch away"
 group = "Section A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", offsets = { "1.0.0" = 0x100C, "1.0.1" = 0x104C } }
@@ -94,7 +92,6 @@ requires = ["master-setup"]
 id = "data-flag"
 name = "Data flag"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.write]]
   at = { module = "main", offsets = { "1.0.0" = 0x3010, "1.0.1" = 0x3010 } }
@@ -119,7 +116,6 @@ requires = ["master-setup"]
 id = "heap-value"
 name = "Heap value"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.write]]
   at = { region = "heap", offsets = { "1.0.0" = 0x40, "1.0.1" = 0x40 } }
@@ -144,7 +140,6 @@ requires = ["master-setup"]
 id = "pointer"
 name = "Pointer"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.write]]
   at = { module = "main", offsets = { "1.0.0" = 0x3020, "1.0.1" = 0x3020 }, path = [0x10, 0x8] }
@@ -176,7 +171,6 @@ id = "hold-a"
 name = "Hold A"
 group = "Data"
 hold = "A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94", offset = 0x4 }
@@ -209,7 +203,6 @@ requires = ["master-setup"]
 id = "condition"
 name = "Condition"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.when]]
   at = { region = "heap", offsets = { "1.0.0" = 0x100, "1.0.1" = 0x100 } }
@@ -245,7 +238,6 @@ id = "cave-jump"
 name = "Cave jump"
 group = "Items"
 hold = "B"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", offsets = { "1.0.0" = 0x1FE8, "1.0.1" = 0x1FE8 } }
@@ -286,7 +278,6 @@ id = "speed"
 name = "Speed"
 run = "action"
 press = "ZL"
-requires = ["master-setup"]
 
   [cheat.values.value]
   type = "f32"

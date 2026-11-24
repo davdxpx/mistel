@@ -1,0 +1,70 @@
+about = "Code the runtime rewrote for its own reasons is not patched: runtime:rewritten (section 11.3)."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "over-rewritten"
+name = "over-rewritten"
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x100 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "elsewhere"
+name = "elsewhere"
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x200 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "override-over-rewritten"
+name = "override-over-rewritten"
+
+  [[cheat.override]]
+  function = { module = "main", offset = 0x300 }
+  action = "skip"
+  expect = "FD 7B BF A9"
+'''
+
+[env]
+platform = "switch"
+
+[env.rewritten]
+main = [[0x102, 4], [0x300, 4]]
+
+[env.modules.main]
+id = "A1B2C3D4E5F60718"
+base = 0x8000000
+size = 0x3000
+code = [0x0, 0x1000]
+rodata = [0x1000, 0x2000]
+data = [0x2000, 0x3000]
+bytes = [
+  { at = 0x100, hex = "68 12 00 B9" },
+  { at = 0x200, hex = "68 12 00 B9" },
+  { at = 0x300, hex = "FD 7B BF A9" },
+]
+
+[expect]
+build = ""
+
+[expect.cheat.over-rewritten]
+state = "refused"
+reason = "runtime:rewritten"
+
+[expect.cheat.elsewhere]
+state = "off"
+reason = ""
+
+[expect.cheat.override-over-rewritten]
+state = "refused"
+reason = "runtime:rewritten"

@@ -29,6 +29,9 @@ PLATFORM = re.compile(r'^(.+?)\s*(?:\s(?:on|at|from)\s|@|\()\s*(.+?)\)?\Z', re.I
 SITE = re.compile(r'(?:https?://)?(?:www\.)?([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})', re.A)
 DECORATION = re.compile(r'^[\s\-=*~#_.:+<>|]+|[\s\-=*~#_.:+<>|]+\Z', re.A)
 GROUP_END = [0x20000001]
+EDIZON = re.compile(r'^--\s*section\s*(start|end)\s*:\s*(.*?)\s*--\Z', re.I | re.A)
+NOT_A_NAME = re.compile(r'^(all credited|all credits?|everyone|everybody|unknown|anonymous|various|'
+                        r'(the )?community|n/?a)\Z', re.I | re.A)
 
 
 class ConvertError(ValueError):
@@ -65,6 +68,8 @@ class Report:
     groups: list = field(default_factory=list)
     credits: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    notes: list = field(default_factory=list)          # lines of the sources that are neither names nor code
+    unreadable: list = field(default_factory=list)     # names of entries whose code could not be read
 
     def count(self, outcome):
         return sum(1 for c in self.cheats if c.outcome == outcome)
@@ -104,7 +109,7 @@ def authors_of(credits):
             on = PLATFORM.match(name)
             if on:
                 name = f'{on.group(1).strip()} ({on.group(2).strip(" .()")})'
-            if name and not LINK.match(name) and name not in names:
+            if name and not LINK.match(name) and not NOT_A_NAME.match(name) and name not in names:
                 names.append(name)
     return names
 
@@ -129,10 +134,25 @@ class _Item:
     derived: object = None
 
 
-def _read(src, report):
+def _read(src, report, key):
     """The entries of a file with code, their groups, and the credit lines."""
     items, group = [], None
-    for e in atm.parse(src.text):
+    notes = []
+    for e in atm.parse(src.text, notes):
+        if e.broken:
+            report.unreadable.append(e.name)
+            report.cheats.append(CheatReport('', e.name, key, 'unreadable',
+                                             'lines that mix code with other text: ' + '; '.join(e.broken)))
+            continue
+        section = EDIZON.match(e.name) if not e.words or atm.is_noop(e) else None
+        if section:
+            if section.group(1).lower() == 'start':
+                group = DECORATION.sub('', section.group(2)).replace('/', '-').strip() or None
+                if group and group not in report.groups:
+                    report.groups.append(group)
+            else:
+                group = None
+            continue
         if not e.words or atm.is_noop(e):
             if CREDIT_NAME.search(e.name):
                 if e.name not in report.credits:
@@ -146,6 +166,9 @@ def _read(src, report):
                     report.groups.append(group)
             continue
         items.append(_Item(e.name, e.master, group, e))
+    for n, line in notes:
+        if line not in report.notes:
+            report.notes.append(line)
     written = set()
     for it in sorted(items, key=lambda i: not i.master):
         try:
@@ -263,15 +286,62 @@ class _Cheat:
         self.item, self.key, self.rep = item, key, rep
         self.hold = None
         self.press = None          # buttons of a block that patches without an else branch: run = "action"
+        self.needs_master = False
         self.ops = []          # (kind, table)
         self.values = {}
         self.raw = {'syntax': 'atmosphere', 'build': key, 'code': item.entry.code}
 
 
+def _master_ranges(master):
+    """The main module byte ranges a master entry writes, or None when it is not known what it writes."""
+    if master is None:
+        return []
+    d = master.derived
+    if isinstance(d, atm.Unclear):
+        return None
+    return [(s.place.offset, s.place.offset + s.width) for s in d.stores + (d.released or [])
+            if s.place.region == 'main' and not s.place.path]
+
+
+def _depends(it, c, master, ranges):
+    """Whether a cheat depends on the master entry of its file: it reads registers the master sets, or it touches,
+    reads through or branches into bytes the master writes. A cheat that stays raw code, or a master whose effect is
+    not known, counts as dependent, as in Atmosphère, where the master always runs first."""
+    if master is None:
+        return False
+    d = it.derived
+    if ranges is None or isinstance(d, atm.Unclear) or not c.ops:
+        return True
+    if d.reads & (master.derived.writes if not isinstance(master.derived, atm.Unclear) else set(range(16))):
+        return True
+
+    def inside(offset, width=1):
+        return any(lo < offset + width and offset < hi for lo, hi in ranges)
+
+    places = [(s.place, s.width) for s in d.stores + (d.released or [])]
+    if d.condition is not None:
+        places.append((d.condition.place, d.condition.width))
+    for place, width in places:
+        if place.region != 'main':
+            continue
+        if inside(place.offset, 8 if place.path else width):
+            return True
+    for s in d.stores:
+        if s.place.region == 'main' and not s.place.path and s.place.offset % 4 == 0:
+            data = s.data
+            for i in range(0, len(data) - len(data) % 4, 4):
+                target = arm64.pc_relative_target(int.from_bytes(data[i:i + 4], 'little'), s.place.offset + i)
+                if target is not None and inside(target, 4):
+                    return True
+    return False
+
+
 def _convert_one(src, key, report, asm, values):
     module = src.module
-    items = _read(src, report)
+    items = _read(src, report, key)
     restore, originals = _restores(items, module)
+    master = next((it for it in items if it.master and id(it) not in restore), None)
+    ranges = _master_ranges(master)
     out = []
     for it in items:
         rep = CheatReport('', it.name, key, 'raw')
@@ -289,6 +359,8 @@ def _convert_one(src, key, report, asm, values):
             except atm.Unclear as u:
                 c.ops, c.values, c.hold, c.press = [], {}, None, None
                 rep.why, rep.outcome, rep.patterns, rep.fixed, rep.values, rep.notes = u.why, 'raw', 0, 0, 0, []
+        if not it.master:
+            c.needs_master = _depends(it, c, master, ranges)
         out.append(c)
         report.cheats.append(rep)
     return out
@@ -409,7 +481,7 @@ def _shape(ops):
 
 
 def _mergeable(a, b):
-    return a.hold == b.hold and a.press == b.press and a.values == b.values and _shape(a.ops) == _shape(b.ops)
+    return a.hold == b.hold and a.press == b.press and a.needs_master == b.needs_master and a.values == b.values and _shape(a.ops) == _shape(b.ops)
 
 
 def _merge_into(a, b):
@@ -430,15 +502,23 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
         sources = [sources]
     report = Report()
     builds, per_source = {}, []
+    ids = [src.build_id.upper() for src in sources]
+    if len(set(ids)) != len(ids):
+        raise ConvertError('two files are for the same build ID')
+    versions = [src.version for src in sources if src.version]
     for src in sources:
         bid = src.build_id.upper()
-        key = src.build_key or src.version or bid
+        shared = src.version is not None and versions.count(src.version) > 1
+        key = src.build_key or (bid if shared else src.version) or bid
         if key in builds:
             raise ConvertError(f'two files name the build {key!r}')
         if src.module is not None and src.module.short_id and not (src.module.short_id.startswith(bid[:16]) or
                                                                    bid.startswith(src.module.short_id)):
             report.warnings.append(f'the module of build {key} is {src.module.short_id}, its cheat file {bid}')
         build = {'version': src.version} if src.version and src.version != key else {}
+        if shared:
+            report.warnings.append(f'builds {bid} and another one are both version {src.version}: named by their '
+                                   'build IDs')
         build['modules'] = {'main': bid}
         builds[key] = build
         per_source.append(_convert_one(src, key, report, asm, values))
@@ -480,7 +560,7 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
             t['group'] = first.item.group
         if first.item.master:
             t['master'] = True
-        elif master_of.get(first.key) is not None:
+        elif master_of.get(first.key) is not None and any(c.needs_master for c in g):
             t['requires'] = [ids[id(master_of[first.key])]]
         if first.press:
             t['run'], t['press'] = 'action', first.press
@@ -499,8 +579,15 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
     found = authors_of(report.credits)
     if found or authors:
         doc['authors'] = found or list(authors)
+    about = []
     if report.credits:
-        doc['about'] = 'Credits in the source: ' + '; '.join(report.credits)
+        about.append('Credits in the source: ' + '; '.join(report.credits))
+    if report.notes:
+        about.append('Lines in the source that are not cheat code: ' + '; '.join(report.notes))
+    if report.unreadable:
+        about.append('Entries whose code could not be read, left out: ' + '; '.join(report.unreadable))
+    if about:
+        doc['about'] = '\n'.join(about)
     doc['origin'] = {'format': 'atmosphere'}
     if origin:
         doc['origin']['name'] = origin
@@ -525,14 +612,22 @@ class BackReport:
     skipped: list = field(default_factory=list)     # (cheat id, why)
 
 
-def to_atmosphere(f, build_key, module=None, prefer='raw'):
-    """(file name, text, BackReport): the cheats of a loaded file as an Atmosphère cheat file for one build."""
+def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None):
+    """(file name, text, BackReport): the cheats of a loaded file as an Atmosphère cheat file for one build.
+
+    A build the file does not name is written from its patterns, with the module of that build; its file name is the
+    module's build ID. `choices` gives the values the player chose (mncf.Choices); else the defaults are written.
+    """
     build = f.builds.get(build_key)
-    if build is None:
-        raise ValueError(f'the file has no build {build_key!r}')
-    main_id = build.modules.get('main')
-    if main_id is None:
-        raise ValueError(f'build {build_key!r} names no main module')
+    if build is not None:
+        main_id = build.modules.get('main')
+        if main_id is None:
+            raise ValueError(f'build {build_key!r} names no main module')
+    elif module is not None and module.short_id:
+        main_id = module.short_id
+    else:
+        raise ValueError(f'the file has no build {build_key!r}, and no module of it is given')
+    chosen = choices.values if choices is not None else {}
     report = BackReport()
     entries, group = [], None
     for c in sorted(f.cheats, key=lambda c: not c.master):
@@ -546,7 +641,7 @@ def to_atmosphere(f, build_key, module=None, prefer='raw'):
             lines, how = raw_lines, 'raw'
         else:
             try:
-                lines, how = atm.format_words(_core_words(c, build_key, module)), 'core'
+                lines, how = atm.format_words(_core_words(c, build_key, module, chosen)), 'core'
             except atm.Unclear as u:
                 if raw is None:
                     report.skipped.append((c.id, u.why))
@@ -598,11 +693,13 @@ def _stores(place, data):
     return out
 
 
-def _default(c, v):
-    return c.values[v.name].default if isinstance(v, ValueRef) else v
+def _default(c, v, chosen=None):
+    if not isinstance(v, ValueRef):
+        return v
+    return (chosen or {}).get(f'{c.id}.{v.name}', c.values[v.name].default)
 
 
-def _core_words(c, build_key, module):
+def _core_words(c, build_key, module, chosen=None):
     if c.run not in ('on', 'action'):
         raise atm.Unclear(f'run = "{c.run}" has no Atmosphère form')
     if c.toggle:
@@ -613,7 +710,7 @@ def _core_words(c, build_key, module):
             place = _place(op.at, build_key, module)
             if op.encode is not None:
                 e = op.encode
-                data = enc.arm64_imm(e['insn'], e['width'], e['rd'], _default(c, e['value']))
+                data = enc.arm64_imm(e['insn'], e['width'], e['rd'], _default(c, e['value'], chosen))
                 if data is None:
                     raise atm.Unclear('a value its instruction cannot hold')
             else:
@@ -622,7 +719,7 @@ def _core_words(c, build_key, module):
             restores += _stores(place, op.expect)
         elif isinstance(op, Write):
             place = _place(op.at, build_key, module)
-            v = _default(c, op.value)
+            v = _default(c, op.value, chosen)
             if isinstance(v, bool):
                 v = int(v)
             if op.type != 'bytes' and not fits(op.type, v):
@@ -632,7 +729,7 @@ def _core_words(c, build_key, module):
         elif isinstance(op, Override):
             if op.expect is None:
                 raise atm.Unclear('an override without expect')
-            stub = enc.arm64_stub(op.action, int(_default(c, op.value) or 0))
+            stub = enc.arm64_stub(op.action, int(_default(c, op.value, chosen) or 0))
             if len(stub) > len(op.expect):
                 raise atm.Unclear('an override whose stub is longer than expect')
             place = _place(op.function, build_key, module)
@@ -648,7 +745,7 @@ def _core_words(c, build_key, module):
     if conds:
         cond = conds[0]
         place = _place(cond.at, build_key, module)
-        value = _default(c, cond.value)
+        value = _default(c, cond.value, chosen)
         if place.path or cond.type not in ('u8', 'u16', 'u32', 'u64') or cond.op not in atm.CONDITION_CODES or \
                 not isinstance(value, int) or isinstance(value, bool):
             raise atm.Unclear('a condition that Atmosphère cannot say')

@@ -29,7 +29,6 @@ master = true
 id = "money"
 name = "Money"
 group = "Section A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", offsets = { "1.0.0" = 0x1008 } }
@@ -47,7 +46,6 @@ requires = ["master-setup"]
 id = "branch-away"
 name = "Branch away"
 group = "Section A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", offsets = { "1.0.0" = 0x100C } }
@@ -78,7 +76,6 @@ requires = ["master-setup"]
 id = "heap-value"
 name = "Heap value"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.write]]
   at = { region = "heap", offsets = { "1.0.0" = 0x40 } }
@@ -96,7 +93,6 @@ requires = ["master-setup"]
 id = "pointer"
 name = "Pointer"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.write]]
   at = { module = "main", offsets = { "1.0.0" = 0x3020 }, path = [0x10, 0x8] }
@@ -118,7 +114,6 @@ id = "hold-a"
 name = "Hold A"
 group = "Data"
 hold = "A"
-requires = ["master-setup"]
 
   [[cheat.patch]]
   at = { module = "main", offsets = { "1.0.0" = 0x100C } }
@@ -140,7 +135,6 @@ requires = ["master-setup"]
 id = "condition"
 name = "Condition"
 group = "Data"
-requires = ["master-setup"]
 
   [[cheat.when]]
   at = { region = "heap", offsets = { "1.0.0" = 0x100 } }

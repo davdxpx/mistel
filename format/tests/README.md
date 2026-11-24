@@ -30,6 +30,7 @@ extensions = ["raw/1"]       # default: raw/1 and arm64-imm/1
 raw = ["atmosphere"]         # the raw syntaxes the runtime runs; this is the default
 build = "1.0.3"              # optional: a runtime that names its build itself
 held = ["ZL"]                # buttons held
+unsupported = ["run.timed"]  # parts of the core the runtime does not have yet (spec, section 11.1)
 on = ["money"]               # cheats the player switched on
 off = ["heal"]               # cheats with default = true that the player switched off
 values = { "money.count" = 5000 }   # values the player chose
@@ -42,6 +43,9 @@ code = [0x0, 0x1000]         # ... with these sections, as [start, end) offsets
 rodata = [0x1000, 0x2000]
 data = [0x2000, 0x3000]
 bytes = [ { at = 0x100, hex = "68 12 00 B9" } ]   # ... and these bytes in it
+
+[env.rewritten]              # code the runtime rewrote for its own reasons: (offset, length) runs per module
+main = [[0x102, 4]]
 
 [env.regions.heap]           # a region: zero bytes at that base
 base = 0x10000000

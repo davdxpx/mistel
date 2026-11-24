@@ -87,7 +87,8 @@ def runtime(env, memory=None):
         env.get('platform', 'switch'), game_id=env.get('game'), arch=env.get('arch'), modules=modules,
         regions=regions, memory=memory.read, capabilities=env.get('capabilities', mncf.CAPABILITIES),
         extensions=env.get('extensions', mncf.KNOWN_EXTENSIONS), raw_syntaxes=env.get('raw', ['atmosphere']),
-        build=env.get('build'), held=env.get('held', []))
+        build=env.get('build'), held=env.get('held', []), unsupported=env.get('unsupported', []),
+        rewritten={m: [tuple(r) for r in runs] for m, runs in env.get('rewritten', {}).items()})
 
 
 def file_results(case, folder):

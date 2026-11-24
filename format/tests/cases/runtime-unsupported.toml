@@ -1,0 +1,118 @@
+about = "A runtime that does not have a part of the core yet refuses the cheats that use it with runtime:unsupported:<key>, naming the first such part in the spec's order."
+text = '''
+format = "mncf/1"
+name = "Conformance"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "timed"
+name = "timed"
+run = "timed"
+duration = 30
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "toggle"
+name = "toggle"
+toggle = "L+DUP"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "one-condition"
+name = "one-condition"
+
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "changed"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "two-conditions"
+name = "two-conditions"
+
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "changed"
+
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  op = "changed"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "plain"
+name = "plain"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "action"
+name = "action"
+run = "action"
+press = "ZL"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x0 }
+  type = "u8"
+  value = 1
+'''
+
+[env]
+platform = "switch"
+unsupported = ["run.timed", "toggle", "when.many"]
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x10000
+
+[expect]
+build = ""
+
+[expect.cheat.timed]
+state = "refused"
+reason = "runtime:unsupported:run.timed"
+
+[expect.cheat.toggle]
+state = "refused"
+reason = "runtime:unsupported:toggle"
+
+[expect.cheat.one-condition]
+state = "off"
+reason = ""
+
+[expect.cheat.two-conditions]
+state = "refused"
+reason = "runtime:unsupported:when.many"
+
+[expect.cheat.plain]
+state = "off"
+reason = ""
+
+[expect.cheat.action]
+state = "off"
+reason = ""

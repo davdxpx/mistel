@@ -1,0 +1,87 @@
+format = "mncf/1"
+name = "Converted cheats"
+origin = { format = "atmosphere" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "setup"
+name = "Setup"
+master = true
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.0" = 0x1FE8 } }
+  expect = "00 00 00 00"
+  bytes = "1F 20 03 D5"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001FE8 D503201F
+400A0000 00000000 00000000
+"""
+
+[[cheat]]
+id = "uses-the-cave"
+name = "Uses the cave"
+requires = ["setup"]
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.0" = 0x1008 } }
+  expect = "68 12 00 B9"
+  bytes = "F8 03 00 14"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001008 140003F8
+"""
+
+[[cheat]]
+id = "uses-its-register"
+name = "Uses its register"
+requires = ["setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+040A0000 00002010 00000001
+"""
+
+[[cheat]]
+id = "on-its-own"
+name = "On its own"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001008 B9001269
+"""
+
+[[cheat]]
+id = "raw-only"
+name = "Raw only"
+requires = ["setup"]
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+300F0000 00000004
+310F0000
+"""

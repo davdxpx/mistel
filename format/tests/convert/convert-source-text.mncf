@@ -1,0 +1,49 @@
+format = "mncf/1"
+name = "Converted cheats"
+about = """
+Credits in the source: Cheats created by All Credited, enjoy
+Lines in the source that are not cheat code: // cheats for Example Quest; made for 1.0.0
+Entries whose code could not be read, left out: Broken\
+"""
+origin = { format = "atmosphere" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "money"
+name = "Money"
+group = "Items"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04000000 00001008 B9001269
+"""
+
+[[cheat]]
+id = "heap"
+name = "Heap"
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { "1.0.0" = 0x10 } }
+  type = "u32"
+  value = 1
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+04100000 00000010 00000001
+"""
