@@ -1,0 +1,48 @@
+format = "mncf/1"
+name = "Converted cheats"
+origin = { format = "atmosphere" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds.0123456789ABCDEF]
+version = "1.0.0"
+modules = { main = "0123456789ABCDEF" }
+
+[builds.1122334455667788]
+version = "1.0.0"
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "heap"
+name = "Heap"
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { 0123456789ABCDEF = 0x10 } }
+  type = "u32"
+  value = 1
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "0123456789ABCDEF"
+  code = """
+04100000 00000010 00000001
+"""
+
+[[cheat]]
+id = "heap-2"
+name = "Heap"
+
+  [[cheat.write]]
+  at = { region = "heap", offsets = { 1122334455667788 = 0x10 } }
+  type = "u32"
+  value = 2
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1122334455667788"
+  code = """
+04100000 00000010 00000002
+"""

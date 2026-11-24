@@ -1,0 +1,21 @@
+about = "Two builds with the same version name are named by their build IDs, and both keep the version."
+game = "0100000000ABC000"
+
+[[source]]
+build_id = "0123456789ABCDEF"
+version = "1.0.0"
+text = '''
+[Heap]
+04100000 00000010 00000001
+'''
+
+[[source]]
+build_id = "1122334455667788"
+version = "1.0.0"
+text = '''
+[Heap]
+04100000 00000010 00000002
+'''
+
+[expect]
+file = "convert-same-version.mncf"

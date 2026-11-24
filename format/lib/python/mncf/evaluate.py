@@ -8,6 +8,9 @@ from .model import Condition, Override, Patch, Place, Read, ValueRef, Write
 from .values import FLOAT_TYPES, encode as encode_value, fits, hex_bytes, type_size
 
 CAPABILITIES = ('guest-read', 'guest-write', 'code-bytes', 'code-hook', 'buttons', 'display')
+# Parts of the core a runtime may not have yet (spec, section 11.1), in the order they are checked.
+FEATURES = ('run.once', 'run.action', 'run.timed', 'run.monitor', 'hold', 'toggle', 'press', 'when', 'when.many',
+            'match.any', 'trigger.enter', 'interval', 'override')
 ADDRESS_MASK = (1 << 64) - 1
 
 
@@ -38,7 +41,7 @@ class Runtime:
 
     def __init__(self, platform, game_id=None, arch=None, modules=None, regions=None, memory=None,
                  capabilities=CAPABILITIES, extensions=('raw/1', 'arm64-imm/1'), raw_syntaxes=('atmosphere',),
-                 build=None, held=()):
+                 build=None, held=(), unsupported=(), rewritten=None):
         self.platform = platform
         self.game_id = game_id
         self.arch = arch
@@ -50,6 +53,11 @@ class Runtime:
         self.raw_syntaxes = set(raw_syntaxes)
         self.build = build                    # a build key the runtime names itself, as a recompilation does
         self.held = set(held)
+        self.unsupported = set(unsupported)   # parts of the core this runtime does not have yet: FEATURES
+        self.rewritten = rewritten or {}      # module name -> (offset, length) runs of code the runtime changed
+
+    def was_rewritten(self, module, offset, length):
+        return any(o < offset + length and offset < o + n for o, n in self.rewritten.get(module, ()))
 
     def read(self, address, size):
         if self.memory is not None:
@@ -210,7 +218,22 @@ def _needs(c, rt, arch):
     return caps, exts
 
 
+def uses(c):
+    """The parts of the core in FEATURES that a cheat uses, in that order."""
+    conditions = [op for op in c.ops if isinstance(op, Condition)]
+    used = {f'run.{c.run}' if c.run != 'on' else None, 'hold' if c.hold else None, 'toggle' if c.toggle else None,
+            'press' if c.press else None, 'when' if conditions else None, 'when.many' if len(conditions) > 1 else None,
+            'match.any' if c.match == 'any' and conditions else None,
+            'trigger.enter' if c.trigger == 'enter' and conditions else None,
+            'interval' if c.interval != 1 and conditions else None,
+            'override' if any(isinstance(op, Override) for op in c.ops) else None}
+    return [k for k in FEATURES if k in used]
+
+
 def _cheat(f, c, rt, build, arch, choices, cache):
+    missing_part = next((k for k in uses(c) if k in rt.unsupported), None)
+    if missing_part:
+        return CheatResult(c.id, 'refused', 'runtime:unsupported:' + missing_part)
     button_caps = ['buttons'] if (c.hold or c.toggle or c.press) else []
     core = c.core_ops
     caps, exts = _needs(c, rt, arch)
@@ -341,6 +364,7 @@ def _plan(f, c, index, op, rt, build, arch, choices, cache):
         else:
             data = op.bytes
         if not target.path:
+            _check_rewritten(rt, target.base, len(op.expect))
             _check_expect(rt, target.base, op.expect, data)
         return Plan('patch', index, op, [target], data=data, expect=op.expect, path_expect=bool(target.path))
     if isinstance(op, Write):
@@ -372,6 +396,7 @@ def _plan(f, c, index, op, rt, build, arch, choices, cache):
             if len(stub) > len(op.expect):
                 raise _Refused('value-out-of-range' if isinstance(op.value, ValueRef) else 'invalid:override.expect')
             if not target.path:
+                _check_rewritten(rt, target.base, len(stub))
                 _check_expect(rt, target.base, op.expect, None)
         return Plan('override', index, op, [target], data=stub, expect=op.expect, action=op.action, value=v,
                     path_expect=patches and bool(target.path))
@@ -504,6 +529,12 @@ def find_all(m, items, section=None, limit=None):
             if limit is not None and len(found) >= limit:
                 return found
     return found
+
+
+def _check_rewritten(rt, place, length):
+    """Refuses a change over code the runtime rewrote for its own reasons (section 11.3)."""
+    if place.module is not None and rt.was_rewritten(place.module, place.offset, length):
+        raise _Refused('runtime:rewritten')
 
 
 def _check_expect(rt, place, expect, data):

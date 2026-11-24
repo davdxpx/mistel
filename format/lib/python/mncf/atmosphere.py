@@ -27,11 +27,14 @@ class AtmosphereError(ValueError):
 
 
 class Unclear(Exception):
-    """The opcodes do something the core operations of .mncf cannot say plainly. `why` says what."""
+    """The opcodes do something the core operations of .mncf cannot say plainly, or, back to Atmosphère, a cheat
+    does something Atmosphère cannot say. `why` says what; `code`, back to Atmosphère, is its stable reason
+    (section 15)."""
 
-    def __init__(self, why):
+    def __init__(self, why, code=None):
         super().__init__(why)
         self.why = why
+        self.code = code
 
 
 @dataclass
@@ -41,14 +44,20 @@ class Entry:
     line: int
     lines: list = field(default_factory=list)     # the code lines as written, stripped
     words: list = field(default_factory=list)
+    broken: list = field(default_factory=list)    # lenient reading: lines that mix code words with other text
 
     @property
     def code(self):
         return '\n'.join(self.lines) + '\n' if self.lines else ''
 
 
-def parse(text):
-    """The entries of an Atmosphère cheat file."""
+def parse(text, notes=None):
+    """The entries of an Atmosphère cheat file.
+
+    Strictly, as Atmosphère reads a file, any line that is neither a name nor code is an error. With a list as `notes`,
+    a line without any code word goes into it as (line number, text) instead, and a line that mixes code words with
+    other text marks its entry as broken.
+    """
     entries = []
     current = None
     for n, raw in enumerate(text.lstrip('﻿').splitlines(), 1):
@@ -64,10 +73,21 @@ def parse(text):
                 line = line[end + 1:].strip()
                 continue
             tokens = line.split()
-            for tok in tokens:
-                if not _WORD.match(tok):
-                    raise AtmosphereError(f'line {n}: {tok!r} is not a word of 8 hexadecimal digits')
+            bad = [tok for tok in tokens if not _WORD.match(tok)]
+            if bad and notes is not None:
+                if len(bad) == len(tokens) or current is None:
+                    notes.append((n, line))
+                else:
+                    current.broken.append(line)
+                line = ''
+                continue
+            if bad:
+                raise AtmosphereError(f'line {n}: {bad[0]!r} is not a word of 8 hexadecimal digits')
             if current is None:
+                if notes is not None:
+                    notes.append((n, line))
+                    line = ''
+                    continue
                 raise AtmosphereError(f'line {n}: code before the first name')
             current.lines.append(line)
             current.words.extend(int(t, 16) for t in tokens)

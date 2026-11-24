@@ -1,0 +1,10 @@
+about = "Back to Atmosphère from each cheat's raw entry for the build, word for word, without the module."
+to = "atmosphere"
+mncf = "convert-module.mncf"
+build = "1.0.0"
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-raw.txt"
+written = { "master-setup" = "raw", money = "raw", "branch-away" = "raw", "data-flag" = "raw", "heap-value" = "raw", pointer = "raw", "hold-a" = "raw", condition = "raw", "cave-jump" = "raw", speed = "raw", loop = "raw" }
+reasons = {}

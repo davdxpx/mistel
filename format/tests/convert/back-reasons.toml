@@ -1,0 +1,218 @@
+about = "Each reason a cheat cannot be written back to Atmosphère, with the module: the first problem of each cheat, as a stable code."
+to = "atmosphere"
+build = "1.0.0"
+prefer = "core"
+values = { "tickets.count" = 300 }
+text = '''
+format = "mncf/1"
+name = "Back reasons"
+extensions = { optional = ["arm64-imm/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF", subsdk0 = "0F0E0D0C0B0A0908" }
+
+[builds."1.0.1"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "store"
+name = "Store"
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x1008 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "found"
+name = "Found"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "once"
+name = "Once"
+run = "once"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "toggled"
+name = "Toggled"
+toggle = "ZL+R"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "other-module"
+name = "Other module"
+
+  [[cheat.patch]]
+  at = { module = "subsdk0", offset = 0x1008 }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "changed"
+name = "Changed"
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x1004 }
+  expect = "00 00 00 00"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "past-the-end"
+name = "Past the end"
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x37FE }
+  expect = "00 00 00 00"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "lost"
+name = "Lost"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "DE AD BE EF" }
+  expect = "DE AD BE EF"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "twice"
+name = "Twice"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "00 00 00 00 00 00 00 00" }
+  expect = "00 00 00 00"
+  bytes = "1F 20 03 D5"
+
+[[cheat]]
+id = "later-build"
+name = "Later build"
+
+  [[cheat.patch]]
+  at = { module = "main", offsets = { "1.0.1" = 0x1048 } }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "two-conditions"
+name = "Two conditions"
+
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u32"
+  op = "=="
+  value = 1
+
+  [[cheat.when]]
+  at = { region = "heap", offset = 0x24 }
+  type = "u32"
+  op = "=="
+  value = 2
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "action-write"
+name = "Action write"
+run = "action"
+press = "ZL"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "tickets"
+name = "Tickets"
+
+  [cheat.values.count]
+  type = "u16"
+  default = 5
+  max = 99
+
+  [[cheat.patch]]
+  at = { module = "main", offset = 0x1008 }
+  expect = "68 12 00 B9"
+  encode = { insn = "movz", width = 32, rd = 8, value = "$count" }
+
+[[cheat]]
+id = "no-expect"
+name = "No expect"
+
+  [[cheat.override]]
+  function = { module = "main", offset = 0x1000 }
+  action = "return"
+  value = 1
+
+[[cheat]]
+id = "watch"
+name = "Watch"
+run = "monitor"
+
+  [[cheat.read]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+
+[[cheat]]
+id = "narrow"
+name = "Narrow"
+
+  [cheat.values.count]
+  type = "u16"
+  default = 300
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = "$count"
+
+[[cheat]]
+id = "unknown"
+name = "Unknown"
+colour = "red"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+'''
+
+[module]                     # the main module of the build
+size = 0x3800
+code = [0x0, 0x2000]
+rodata = [0x2000, 0x3000]
+data = [0x3000, 0x3800]
+text_size = 0x1FE0
+bytes = [
+  { at = 0x1000, hex = "FD 7B BF A9 FD 03 00 91 68 12 00 B9 40 00 00 94 08 00 00 90 00 21 40 B9 FD 7B C1 A8 C0 03 5F D6" },
+  { at = 0x1800, hex = "00 10 2E 1E 08 20 20 1E" },
+  { at = 0x2100, hex = "45 78 61 6D 70 6C 65 00" },
+  { at = 0x3020, hex = "00 01 00 10 00 00 00 00" },
+]
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-reasons.txt"
+written = { store = "core", found = "core" }
+reasons = { once = "atmosphere:run", toggled = "atmosphere:toggle", "other-module" = "atmosphere:module", changed = "expect-mismatch", "past-the-end" = "outside", lost = "pattern-not-found", twice = "pattern-ambiguous", "later-build" = "build-unknown", "two-conditions" = "atmosphere:condition", "action-write" = "atmosphere:action", tickets = "value-out-of-range", "no-expect" = "atmosphere:override", watch = "atmosphere:monitor", narrow = "value-out-of-range", unknown = "unknown-key:colour" }

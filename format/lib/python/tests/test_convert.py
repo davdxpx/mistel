@@ -213,7 +213,8 @@ class ConvertTest(unittest.TestCase):
         speed = f.cheat('speed')       # patches without an else branch: the patch stays after the press
         self.assertEqual((speed.hold, speed.run, speed.press), (None, 'action', 'ZL'))
         self.assertEqual((f.cheat('cave-jump').group, f.cheat('speed').group), ('Items', None))
-        self.assertEqual(f.cheat('money').requires, ['master-setup'])
+        # Only a cheat that depends on the master requires it; Loop stays raw code, which may.
+        self.assertEqual((f.cheat('money').requires, f.cheat('loop').requires), ([], ['master-setup']))
         self.assertTrue(f.cheat('master-setup').master)
         self.assertEqual(f.authors, ['someone'])
         self.assertEqual(f.doc['origin'], {'format': 'atmosphere', 'name': 'example.zip', 'site': 'example.org'})
@@ -289,8 +290,12 @@ class ConvertTest(unittest.TestCase):
         same, differ, missing = convert.compare(syn.CHEATS, core, effects=True)
         self.assertEqual(differ, [])
         self.assertEqual((dict(report.written)['loop'], dict(report.written)['money']), ('raw', 'core'))
+        name, other, report = convert.to_atmosphere(f, '9.9.9', mod, prefer='core')
+        self.assertEqual(name, f'{syn.BUILD_ID}.txt')          # a build the file does not name: from patterns
+        self.assertIn('money', dict(report.written))
+        self.assertNotIn('branch-away', dict(report.written))   # offsets for 1.0.0 only
         with self.assertRaises(ValueError):
-            convert.to_atmosphere(f, '9.9.9', mod)
+            convert.to_atmosphere(f, '9.9.9')
 
     def test_back_refuses_what_atmosphere_cannot_say(self):
         text = """format = "mncf/1"
@@ -341,6 +346,140 @@ def same_doc(a, b):
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(same_doc(x, y) for x, y in zip(a, b))
     return type(a) is type(b) and a == b
+
+
+class PeanutsGapsTest(unittest.TestCase):
+    """What the first runtime that used the library found."""
+
+    def test_master_only_where_a_cheat_depends_on_it(self):
+        text = """{Setup}
+04000000 00001FE8 D503201F
+400A0000 00000000 00000000
+
+[Uses the cave]
+04000000 00001008 140003F8
+
+[Uses its register]
+040A0000 00002010 00000001
+
+[On its own]
+04000000 00001008 B9001269
+"""
+        conv = convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID, asm=False)
+        f = mncf.load(conv.text.encode())
+        self.assertEqual([c.requires for c in f.cheats if not c.master], [['setup'], ['setup'], []])
+
+    def test_lines_that_are_not_code(self):
+        text = """// cheats for Example Quest
+[Money]
+04000000 00001008 B9001269
+made for 1.0.0
+
+[Broken]
+04000000 00001008 GGGGGGGG
+"""
+        with self.assertRaises(atm.AtmosphereError):
+            atm.parse(text)
+        notes = []
+        entries = atm.parse(text, notes)
+        self.assertEqual(notes, [(1, '// cheats for Example Quest'), (4, 'made for 1.0.0')])
+        self.assertEqual([e.broken for e in entries], [[], ['04000000 00001008 GGGGGGGG']])
+        conv = convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID, asm=False)
+        f = mncf.load(conv.text.encode())
+        self.assertEqual([c.id for c in f.cheats], ['money'])
+        self.assertIn('Lines in the source that are not cheat code: // cheats for Example Quest; made for 1.0.0',
+                      f.about)
+        self.assertIn('Entries whose code could not be read, left out: Broken', f.about)
+        self.assertEqual(conv.report.count('unreadable'), 1)
+
+    def test_edizon_sections_and_names_that_are_no_person(self):
+        text = """[--SectionStart:Items--]
+[Money]
+04000000 00001008 B9001269
+[--SectionEnd:Items--]
+[Heap]
+04100000 00000010 00000001
+[Cheats created by All Credited, enjoy]
+"""
+        f = mncf.load(convert.from_atmosphere(source(text=text), game_id=syn.GAME_ID).text.encode())
+        self.assertEqual([(c.id, c.group) for c in f.cheats], [('money', 'Items'), ('heap', None)])
+        self.assertEqual(f.authors, [])
+        self.assertEqual(convert.authors_of(['by All Credited', 'by everyone', 'by Ann']), ['Ann'])
+
+    def test_builds_with_the_same_version(self):
+        a = source(text='[Heap]\n04100000 00000010 00000001\n', version='1.0.0')
+        b = source(text='[Heap]\n04100000 00000010 00000002\n', build_id='1122334455667788', version='1.0.0')
+        f = mncf.load(convert.from_atmosphere([a, b], game_id=syn.GAME_ID).text.encode())
+        self.assertEqual({k: b.version for k, b in f.builds.items()},
+                         {syn.BUILD_ID: '1.0.0', '1122334455667788': '1.0.0'})
+        with self.assertRaises(convert.ConvertError):
+            convert.from_atmosphere([a, a], game_id=syn.GAME_ID)
+
+    def test_back_with_the_players_values(self):
+        text = '[Tickets]\n040A0000 00001008 52986A08\n'
+        f = mncf.load(convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID).text.encode())
+        _, back, _ = convert.to_atmosphere(f, '1.0.0', module(), 'core', mncf.Choices(values={'tickets.value': 7}))
+        self.assertIn('04000000 00001008 528000E8', back)          # movz w8, #7
+        # A value the player cannot choose is refused as the reader refuses it; the raw entry is written instead.
+        for bad in ('7', True, -1, 1 << 40):
+            _, back, report = convert.to_atmosphere(f, '1.0.0', module(), 'core',
+                                                    mncf.Choices(values={'tickets.value': bad}))
+            self.assertEqual(report.written, [('tickets', 'raw')], bad)
+            self.assertIn('040A0000 00001008 52986A08', back)
+        f.cheats[0].raw = []
+        _, _, report = convert.to_atmosphere(f, '1.0.0', module(), 'core', mncf.Choices(values={'tickets.value': -1}))
+        self.assertEqual(report.skipped, [('tickets', 'a chosen value the cheat cannot take')])
+
+    def test_every_build_back_with_reasons(self):
+        a = source(module(), text='[Money]\n04000000 00001008 B9001269\n[Heap]\n04100000 00000010 00000001\n')
+        b = source(text='[Heap]\n04100000 00000010 00000002\n', build_id='1122334455667788', version='1.0.1')
+        f = mncf.load(convert.from_atmosphere([a, b], game_id=syn.GAME_ID).text.encode())
+        out = convert.to_atmosphere_all(f, {'1.0.1': module()}, prefer='core')
+        self.assertEqual([(x.build, x.name, x.reason) for x in out],
+                         [('1.0.0', f'{syn.BUILD_ID}.txt', None), ('1.0.1', '1122334455667788.txt', None)])
+        self.assertEqual(dict(out[0].report.written), {'money': 'raw', 'heap': 'core'})      # no module: raw
+        self.assertEqual(dict(out[1].report.written), {'money': 'core', 'heap-2': 'core'})
+        self.assertEqual(out[1].report.reasons, {'heap': 'build-unknown'})
+        out = convert.to_atmosphere_all(f)                     # without modules: Money's pattern cannot be found
+        self.assertEqual(out[1].report.reasons, {'money': 'atmosphere:no-module', 'heap': 'build-unknown'})
+        self.assertIn('04100000 00000010 00000002', out[1].text)
+        doc = tomllib.loads(convert.from_atmosphere(a, game_id=syn.GAME_ID).text)
+        doc['builds']['sub'] = {'modules': {'subsdk0': '0F0E0D0C0B0A0908'}}
+        g = mncf.load(write.dumps(doc).encode())
+        self.assertEqual([(x.build, x.reason) for x in convert.to_atmosphere_all(g)],
+                         [('1.0.0', None), ('sub', 'atmosphere:module')])
+
+    def test_back_per_cheat_and_round_trip_of_groups(self):
+        conv = convert.from_atmosphere(source(module()), game_id=syn.GAME_ID, asm=False)
+        f = mncf.load(conv.text.encode())
+        with self.assertRaises(ValueError):
+            convert.to_atmosphere(f, '1.0.0', prefer_cheats={'money': 'best'})
+        _, text, report = convert.to_atmosphere(f, '1.0.0', module(), prefer_cheats={'money': 'core'})
+        self.assertEqual([how for cid, how in report.written if cid in ('money', 'branch-away')], ['core', 'raw'])
+        # The groups come back as they were: the cheats after a group's end are in no group again. (The master
+        # entry comes first in Atmosphère, outside every group.)
+        again = mncf.load(convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID).text.encode())
+        self.assertEqual([(c.id, c.group) for c in again.cheats if not c.master],
+                         [(c.id, c.group) for c in f.cheats if not c.master])
+        out = convert.to_atmosphere_all(f, prefer_cheats={'money': 'core'})
+        self.assertEqual(out[0].report.reasons, {})                     # Money falls back to raw: no module
+
+    def test_compare_reads_the_original_leniently(self):
+        original = '// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n'
+        same, differ, missing = convert.compare(original, '[Heap]\n04100000 00000010 00000001\n')
+        self.assertEqual((same, differ, missing), (['Heap'], [], []))
+
+    def test_runtime_lacks_parts_of_the_core_and_rewrote_code(self):
+        text = syn.CHEATS
+        f = mncf.load(convert.from_atmosphere(source(module(), text=text), game_id=syn.GAME_ID).text.encode())
+        rt = mncf.Runtime('switch', modules={'main': module().reader_module()}, regions={'heap': (0, 0x10000)},
+                          unsupported=['hold', 'run.action'], rewritten={'main': [(syn.STR_W8, 4)]})
+        ev = mncf.evaluate(f, rt)
+        reasons = {c.id: c.reason for c in ev.cheats}
+        self.assertEqual(reasons['hold-a'], 'runtime:unsupported:hold')
+        self.assertEqual(reasons['speed'], 'runtime:unsupported:run.action')
+        self.assertEqual(reasons['money'], 'runtime:rewritten')
+        self.assertEqual(reasons['heap-value'], '')
 
 
 class WriteTest(unittest.TestCase):

@@ -61,6 +61,8 @@ Runtime runtime = Runtime.builder("switch")
         .module("main", main)
         .region("heap", heapBase, heapSize)
         .memory((address, size) -> readGuestMemory(address, size))   // null outside guest memory
+        .unsupported("override")                        // parts of the core it lacks yet, out of Mncf.FEATURES
+        .rewritten("main", 0x1000, 0x40)                // code it rewrote itself: no patch goes over it
         .build();
 Choices choices = Choices.builder().on("money").value("money.count", 5000).build();
 
@@ -106,12 +108,27 @@ Conversion conv = Converter.fromAtmosphere(source,      // or a list of sources,
         Converter.Options.forGame("0100000000ABC000")  // ConvertException with code() "atmosphere" or "source"
                 .gameName("Example").origin("cheats.zip"));
 conv.text();                                            // the .mncf text
-conv.report().cheats();                                 // per entry: pattern, build, raw or restore, and why
+conv.report().cheats();                                 // per entry: pattern, build, raw, restore or unreadable, and why
 
 Converter.Export back = Converter.toAtmosphere(Mncf.load(bytes), "1.0.0", module, "raw");
 back.fileName();                                        // "0123456789ABCDEF.txt"
 back.text();
+Converter.toAtmosphere(file, "1.0.1", newModule, "core", choices);   // a build the file does not name: from
+                                                                      // its patterns, with the player's values
+back.written();                                         // per cheat id: "raw" or "core"
+back.reasons();                                         // per cheat left out: "build-unknown", "atmosphere:toggle"...
+Converter.toAtmosphere(file, "1.0.0", module, "raw", choices,
+        Collections.singletonMap("money", "core"));    // core for one cheat: the value the player set
+
+for (Converter.BuildExport b : Converter.toAtmosphereAll(file, modulesByBuild, "raw", choices)) {
+    b.build();                                          // every build of the file, in its order
+    b.export();                                         // its Export, or null with reason() "atmosphere:module"
+}
 ```
+
+Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say. The file keeps Atmosphère's limits: one master entry with the code of every master cheat, and at most 127 other entries (group starts and ends count) of at most 256 words; what does not fit is left out with `atmosphere:too-many` or `atmosphere:too-long`. A group is ended where a cheat in no group follows it.
+
+A converted cheat requires the master code only where it depends on it. Lines of a source that are neither names nor code go into the file's `about`, and an entry whose code mixes words with other text is left out and named there.
 
 A file may have at most 16 MiB (`Mncf.MAX_FILE`). A pack may have at most 4096 entries, none of more than 16 MiB whatever its header claims, and a reader reads at most 256 MiB from it; beyond that the error code is `size`.
 

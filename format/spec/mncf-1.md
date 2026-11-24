@@ -461,6 +461,8 @@ A static value the instruction cannot hold is an error in the cheat (`invalid:pa
 
 A cheat that needs a capability the runtime lacks is off with `capability-missing`, naming the first missing one in the order of this table. A pointer path in any location and every condition need `guest-read`.
 
+Capabilities are what a runtime's platform allows. The rest of the core is not optional: a conforming runtime has all of it, and the reference engines of the libraries do the work of a pass (section 11.5). A runtime that does not have a part of it yet refuses the cheats that use it with `runtime:unsupported:<key>`, naming the first such part in this order: `run.once`, `run.action`, `run.timed`, `run.monitor`, `hold`, `toggle`, `press`, `when` (any condition), `when.many` (more than one), `match.any`, `trigger.enter`, `interval`, `override`.
+
 ### 11.2 Applying a file
 
 1. Check the signature, if there is one (section 12). An invalid signature stops here.
@@ -480,7 +482,7 @@ When a file is loaded, the cheats that are on are the ones with `default = true`
 
 - The first time a patch or an override changes a place, the runtime keeps the original bytes. When the cheat is switched off, refused, waits, its conditions stop holding, or it is gone after the file is loaded again, the runtime puts them back, unless another cheat whose patch is applied writes the same place.
 - A runtime that must stop the game's threads to change code SHOULD change everything of one pass in one stop, and SHOULD compare before writing, so that a cheat that stays on costs no stop.
-- A runtime that changes the original code for its own reasons (a rewriter) refuses cheats that write over what it changed, with `runtime:<reason>`.
+- A runtime that changes the original code for its own reasons (a rewriter) refuses cheats whose patches or override stubs write over what it changed, with `runtime:rewritten`.
 
 ### 11.4 Keeping the player safe
 
@@ -608,7 +610,9 @@ A converter (`mistel convert`) keeps every cheat of the file it reads. For an At
 | The file name, `<build ID>.txt` | A build with `modules = { main = "<build ID>" }` |
 | `[Name]` with code | A cheat with a `raw` entry (`raw/1`) for that build, plus core operations where the code allows (below) |
 | `[Name]` without code, or with only `20000000` | A group: the cheats after it get `group = "Name"`. An entry with only `20000001` ends the group |
-| `{Name}` | A master cheat that the other cheats require |
+| `[--SectionStart:Name--]` and `[--SectionEnd:Name--]` (EdiZon) | The start and the end of the group `Name` |
+| `{Name}` | A master cheat. The cheats that depend on it require it (below) |
+| A line that is neither a name nor code | Kept in `about` as it was. An entry whose code lines mix code words with other text is left out, and named in `about` |
 | An entry that only restores code | Dropped: runtimes restore code themselves (section 11.3) |
 | Credits, links, the title line | `authors`, `about` |
 | A key mask (code type 8, or C4 without repeat) around the whole cheat | `hold`, where the block only writes data, or where an else branch writes back the original bytes of what it patches (the else branch is dropped, as runtimes restore patches on release). A block that patches code without such an else branch leaves its patch when the buttons are let go: it becomes `run = "action"` with `press`. One that patches without an else branch and also writes data keeps only its `raw` entry |
@@ -621,8 +625,30 @@ Where the code is only plain writes, the converter writes core operations: a wri
 - A pattern does not hold the bytes that move between builds: branch and literal offsets, page addresses, and the low 12 bits that follow a page address are `??`.
 - A patch keeps its offsets per build where the same bytes would mean something else at another place: new bytes with a branch or address relative to themselves that points outside them, or code written after the end of the code (a code cave in the padding of the last page).
 - Registers carry over from one Atmosphère cheat to the next in the same frame. A cheat that reads a register an earlier cheat sets keeps only its `raw` entry.
+- A cheat requires the master only where it depends on it, so that the cheats that find their place by pattern keep working on a build the master does not fit. A cheat depends on the master when it reads a register the master sets, or writes, reads through or branches into bytes the master writes, and also when it keeps only its `raw` entry or when what the master does is not known: in Atmosphère the master always runs first.
 
-Back to Atmosphère for one build, a converter writes each cheat's `raw` entry for that build where there is one, and its core operations otherwise: a patch as stores of its bytes, a pointer path as loads, a `hold` as a key block whose else branch writes back the original bytes of the patches, a single `when` on a fixed place as a memory condition. What Atmosphère cannot say (monitors, `toggle`, `press`, the run modes other than `"on"`, conditions on pointer paths) is left out and named.
+Back to Atmosphère, a converter writes each build of the file as its own `<build ID>.txt`, named by the build's main module; a build that names no main module cannot be one. It can also write a build the file does not name, from the cheats' patterns, given that build's main module. For each cheat it writes the `raw` entry for that build where there is one, and its core operations otherwise, or where the caller prefers them, for all cheats or for one, such as a cheat whose value the player set: a patch as stores of its bytes, a pointer path as loads, a `hold` as a key block whose else branch writes back the original bytes of the patches, an action as a key block, a single `when` on a fixed place as a memory condition, and each value as the player chose it or as its default. Where the core operations cannot be written, a cheat with a `raw` entry for the build falls back to it.
+
+The file keeps Atmosphère's limits, beyond which Atmosphère refuses the whole file: one master entry, which holds the code of every master cheat in file order and takes the first one's name; at most 127 other entries, the names that start a group and the entries with only `20000001` that end one counted with them; and at most 256 words in an entry. A group is ended where a cheat in no group follows it.
+
+With the build's main module, the converter finds the patterns and checks each patch and override stub against `expect`, as a runtime would, because Atmosphère code writes without looking; without the module, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same in every library: the reader's reason where the cheat has a problem of its own (Appendix B), and otherwise the first of these that it meets, in the order of section 11.2:
+
+| Reason | The cheat |
+|---|---|
+| `build-unknown` | Has neither an offset nor a `raw` entry for this build |
+| `pattern-not-found`, `pattern-ambiguous` | Has a pattern that does not match exactly once in the module |
+| `expect-mismatch`, `outside` | Patches other bytes in the module than `expect`, or has a place in it, or the pointer at the base of a pointer path, past its end |
+| `value-out-of-range` | Has a value, as the player chose it or as its default, that it cannot take or that its instruction or write cannot hold |
+| `atmosphere:no-module` | Has a pattern, and no module was given to search |
+| `atmosphere:run`, `atmosphere:monitor` | Runs `"once"` or `"timed"`, or is a monitor |
+| `atmosphere:toggle` | Has `toggle` buttons |
+| `atmosphere:condition` | Has conditions Atmosphère cannot say: more than one, `match`, `trigger` or `interval`, or one on a pointer path or of a float type |
+| `atmosphere:action` | Is an action that writes data or has `hold` |
+| `atmosphere:override` | Has an override without `expect`, or one whose stub is longer than it |
+| `atmosphere:module`, `atmosphere:region`, `atmosphere:address` | Has a place Atmosphère cannot name: in a module other than main, in a region without a memory code, or at an absolute address |
+| `atmosphere:empty` | Has nothing to write |
+| `atmosphere:too-long` | Would be an entry of more than 256 words, or make the master entry longer than that |
+| `atmosphere:too-many` | Would be an entry past the 127th |
 
 Converters for the cheat and patch files of other emulators and for PC cheat tables follow the same rule: keep every cheat, and write core operations where the meaning is clear.
 
@@ -631,7 +657,8 @@ A converter also writes down what it knows about the source:
 - `origin` names the source's format, where the caller knows it the source's name, and the website the source's links name. `authors` are the people the source credits, each with the platform the source names for them in parentheses (`"Ann (example forum)"` for "Ann on example forum"); where it credits nobody, the caller MAY name a default author, such as the player who imported the file, and otherwise `authors` is left out. Credit lines, links and title lines go into `about` as they were.
 
 - A patch whose new bytes are one `movz`, a `movz` and a `movk` of the same register, or one `fmov` with an immediate, MAY become an `arm64-imm/1` patch whose value the player sets, with the instruction's own number as the default.
-- Files for several builds of the same game become one file with all of those builds. A cheat with the same name that does the same in two builds, apart from fixed offsets, becomes one cheat with offsets for each build and a `raw` entry for each.
+- Files for several builds of the same game become one file with all of those builds. A cheat with the same name that does the same in two builds, apart from fixed offsets, becomes one cheat with offsets for each build and a `raw` entry for each. A build is named by its version, or by its build ID where two files give the same version; two files for the same build ID cannot be one file.
+- A credit that names no person ("All Credited", "everyone", "unknown") gives no author.
 - A converter MUST NOT take original bytes from places where the module it was given does not hold the game's own bytes, such as code a runtime rewrote; there a patch keeps fixed offsets and takes `expect` only from the source itself.
 
 
@@ -684,7 +711,10 @@ Other architectures have no stub yet: their runtimes apply overrides with `code-
 | `value-out-of-range` | A player value does not fit where it is written |
 | `requires:<id>`, `excludes:<id>` | A relation stops the cheat |
 | `signature` | The file's signature is invalid or revoked |
-| `runtime:<reason>` | A reason of the runtime's own, such as code it rewrote |
+| `runtime:unsupported:<key>` | The runtime does not have that part of the core yet (section 11.1) |
+| `runtime:rewritten` | The runtime rewrote that code for its own reasons (section 11.3) |
+| `runtime:<reason>` | Another reason of the runtime's own |
+
 
 In `unknown-key:<key>` and `invalid:<key>`, `<key>` is the key's path from the cheat: the TOML keys from the cheat's table down to the key, joined by dots, without array positions. Examples: `name`, `values.count.default`, `patch.at.find`, `when.value.at`. Where a rule ties two keys, the key named is the one the rule's sentence is about: `patch.expect` when `expect` and `bytes` differ in length, `patch.bytes` when a patch has neither `bytes` nor `encode`, or both.
 

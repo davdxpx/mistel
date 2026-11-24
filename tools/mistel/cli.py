@@ -99,8 +99,11 @@ def cmd_convert(args):
     r = conv.report
     print(f'wrote {out}')
     print(f'{len(r.cheats)} cheats: {r.count("pattern")} with patterns, {r.count("build")} with offsets for their '
-          f'build, {r.count("raw")} only as raw code, {r.count("restore")} restore entries dropped; '
-          f'{len(r.groups)} groups, {sum(c.values for c in r.cheats)} values')
+          f'build, {r.count("raw")} only as raw code, {r.count("restore")} restore entries dropped, '
+          f'{r.count("unreadable")} unreadable entries left out; {len(r.groups)} groups, '
+          f'{sum(c.values for c in r.cheats)} values')
+    for line in r.notes:
+        print(f'not cheat code, kept in about: {line}')
     if args.verbose:
         for c in r.cheats:
             print(f'  {c.outcome:8} {c.id or "-"} ({c.build})' + (f': {c.why}' if c.why else ''))

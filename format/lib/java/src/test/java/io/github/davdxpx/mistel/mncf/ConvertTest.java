@@ -87,7 +87,9 @@ public final class ConvertTest {
         Check.equal("ZL", speed.press());
         Check.equal("Items", f.cheat("cave-jump").group());
         Check.isTrue(f.cheat("speed").group() == null, "the group ended before Speed");
-        Check.equal(Collections.singletonList("master-setup"), f.cheat("money").requires());
+        // Only a cheat that depends on the master requires it; Loop stays raw code, which may.
+        Check.equal(Collections.<String>emptyList(), f.cheat("money").requires());
+        Check.equal(Collections.singletonList("master-setup"), f.cheat("loop").requires());
         Check.isTrue(f.cheat("master-setup").isMaster(), "the master");
         Check.equal(Collections.singletonList("someone"), f.authors());
         Map<String, Object> origin = new LinkedHashMap<>();
@@ -182,10 +184,18 @@ public final class ConvertTest {
 
     public static void testErrorCodes() {
         final Source a = source(null);
-        ConvertException e = Check.throwsWith(ConvertException.class, "two files name the build", new Check.Action() {
+        ConvertException e = Check.throwsWith(ConvertException.class, "same build ID", new Check.Action() {
             @Override
             public void run() throws Exception {
                 Converter.fromAtmosphere(Arrays.asList(a, a), options());
+            }
+        });
+        Check.equal("source", e.code());
+        final Source b = Source.builder("1122334455667788", Synthetic.CHEATS).buildKey("1.0.0").build();
+        e = Check.throwsWith(ConvertException.class, "two files name the build", new Check.Action() {
+            @Override
+            public void run() throws Exception {
+                Converter.fromAtmosphere(Arrays.asList(a, b), options());
             }
         });
         Check.equal("source", e.code());
@@ -199,8 +209,8 @@ public final class ConvertTest {
         e = Check.throwsWith(AtmosphereException.class, "line 2", new Check.Action() {
             @Override
             public void run() throws Exception {
-                Converter.fromAtmosphere(source(null, "[Heap]\n04100000 0000001 00000001\n", Synthetic.BUILD_ID,
-                        "1.0.0"), options());
+                Converter.fromAtmosphere(source(null, "[Heap]\n[Money\n04100000 00000010 00000001\n",
+                        Synthetic.BUILD_ID, "1.0.0"), options());
             }
         });
         Check.equal("atmosphere", e.code());
@@ -238,11 +248,15 @@ public final class ConvertTest {
         Check.equal(Collections.<String>emptyList(), cmp.differ());
         Check.equal("raw", core.written().get("loop"));
         Check.equal("core", core.written().get("money"));
+        Converter.Export other = Converter.toAtmosphere(f, "9.9.9", mod, "core");
+        Check.equal(Synthetic.BUILD_ID + ".txt", other.fileName());     // a build the file does not name: from patterns
+        Check.isTrue(other.written().containsKey("money"), "money from its pattern");
+        Check.isTrue(!other.written().containsKey("branch-away"), "offsets for 1.0.0 only");
+        final MncfFile file = f;
         Check.throwsWith(IllegalArgumentException.class, "no build", new Check.Action() {
             @Override
             public void run() throws Exception {
-                Converter.toAtmosphere(Mncf.load(Fixtures.utf8(Converter.fromAtmosphere(source(null), options()).text())),
-                        "9.9.9", null, "raw");
+                Converter.toAtmosphere(file, "9.9.9", null, "raw");
             }
         });
     }
