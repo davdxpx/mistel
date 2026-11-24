@@ -536,6 +536,10 @@ class PatchFilesTest(unittest.TestCase):
                                                          'atmosphere/contents/0100000000ABC000/exefs/b.pchtxt',
                                                          '0123456789ABCDEF.ips', None)],
                          ['60fps', 'My mod', 'b', 'Patch', 'Patch'])
+        self.assertEqual(convert._set_name('x/.ips'), 'x')
+        self.assertEqual(convert._set_name('.ips'), 'Patch')
+        neg = patches.Patch('', True, [(-5, b'\x01')])
+        self.assertEqual(patches.image_runs(neg, 0x10)[1], ['-0x5: 1 byte in the NSO header'])
 
     def test_convert(self):
         mod = module()
@@ -577,9 +581,22 @@ class PatchFilesTest(unittest.TestCase):
         f = mncf.load(convert.from_patches([a, c], game_id=syn.GAME_ID).text.encode())   # one version, two builds
         self.assertEqual(sorted(f.builds), [syn.BUILD_ID, '1122334455667788'])
         self.assertEqual(len(f.cheats), 1)
+        no_version = convert.PatchSource(a.data, mod, file_name=f'{syn.BUILD_ID}.ips', version='')
+        self.assertEqual(list(mncf.load(convert.from_patches(no_version, game_id=syn.GAME_ID).text.encode()).builds),
+                         [syn.BUILD_ID])
         same_key = convert.PatchSource(a.data, mod, file_name='1122334455667788.ips', build_key='1.0.0')
         with self.assertRaises(convert.ConvertError):                    # one build, two IDs for main
             convert.from_patches([a, same_key], game_id=syn.GAME_ID)
+
+    def test_credits_name_no_patch_and_failures_keep_no_counts(self):
+        mod = CodeModule(module().image, module().sections, syn.BUILD_ID, exclude=[(0x1010, 4)])
+        text = ('@flag offset_shift 0x100\n// Patches by Ann\n@enabled\n00001008 691200B9\n'
+                '// Half\n@enabled\n00001008 691200B9\n00001010 1F2003D5\n')
+        conv = convert.from_patches(convert.PatchSource(text.encode(), mod, file_name='p.pchtxt', set_name='S'),
+                                    game_id=syn.GAME_ID)
+        self.assertEqual([(c.name, c.outcome, c.patterns, c.fixed, c.notes) for c in conv.report.cheats],
+                         [('S 1', 'pattern', 1, 0, []), ('Half', 'unreadable', 0, 0, [])])
+        self.assertEqual(mncf.load(conv.text.encode()).authors, ['Ann'])
 
     def test_values_and_data(self):
         mod = module()

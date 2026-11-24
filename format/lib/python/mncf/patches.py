@@ -201,6 +201,10 @@ def trim_build_id(text):
     return text
 
 
+def _hex(n):
+    return f'-0x{-n:X}' if n < 0 else f'0x{n:X}'
+
+
 def _bytes(n):
     return f'{n} byte' if n == 1 else f'{n} bytes'
 
@@ -217,9 +221,9 @@ def image_runs(patch, size):
             if 0 <= at < size:
                 written[at] = b
         if start < 0:
-            dropped.append(f'0x{offset:X}: {_bytes(min(len(data), -start))} in the NSO header')
+            dropped.append(f'{_hex(offset)}: {_bytes(min(len(data), -start))} in the NSO header')
         if start + len(data) > size:
-            dropped.append(f'0x{offset:X}: {_bytes(min(len(data), start + len(data) - max(start, size)))} past the '
+            dropped.append(f'{_hex(offset)}: {_bytes(min(len(data), start + len(data) - max(start, size)))} past the '
                            'module')
     runs = []
     for at in sorted(written):

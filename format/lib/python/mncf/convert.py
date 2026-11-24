@@ -644,7 +644,7 @@ def _set_name(file_name):
                 not re.match(r'^[0-9A-Fa-f]{16}\Z', folder):
             return folder
     stem = parts[-1].rsplit('.', 1)[0]
-    return 'Patch' if patches_mod.build_id_of(parts[-1]) else stem
+    return 'Patch' if not stem or patches_mod.build_id_of(parts[-1]) else stem
 
 
 def _patch_cheat(item, key, rep, runs, module, mname, asm, values):
@@ -710,7 +710,7 @@ def from_patches(sources, *, game_id, platform='switch', game_name=None, name=No
         if src.version:
             versions.setdefault((src.version, src.module_name), set()).add(bid)
     for src, f, bid in read:
-        shared = src.version is not None and len(versions[(src.version, src.module_name)]) > 1
+        shared = bool(src.version) and len(versions[(src.version, src.module_name)]) > 1
         key = src.build_key or (bid if shared else src.version) or bid
         mid = src.module.build_id
         if mid and not (mid.upper().startswith(bid) or bid.startswith(mid.upper())):
@@ -730,7 +730,8 @@ def from_patches(sources, *, game_id, platform='switch', game_name=None, name=No
         group = set_name if len(f.patches) > 1 else None
         out = []
         for i, p in enumerate(f.patches, 1):
-            title = p.name or (set_name if len(f.patches) == 1 else f'{set_name} {i}')
+            named = p.name if p.name and not CREDIT_NAME.search(p.name) else ''
+            title = named or (set_name if len(f.patches) == 1 else f'{set_name} {i}')
             rep = CheatReport('', title, key, 'pattern')
             runs, dropped = patches_mod.image_runs(p, len(src.module.image))
             rep.notes += [f'left out {d}' for d in dropped]
@@ -740,6 +741,8 @@ def from_patches(sources, *, game_id, platform='switch', game_name=None, name=No
                 c = _patch_cheat(_PatchItem(title, group), key, rep, runs, src.module, src.module_name, asm, values)
             except atm.Unclear as u:
                 rep.outcome, rep.why = 'unreadable', u.why
+                rep.patterns, rep.fixed, rep.values = 0, 0, 0
+                rep.notes = [f'left out {d}' for d in dropped]
                 report.unreadable.append(f'{title} ({u.why})')
                 report.cheats.append(rep)
                 continue
