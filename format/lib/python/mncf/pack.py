@@ -3,6 +3,7 @@ import hashlib
 import io
 import re
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 
 from . import MAX_FILE, decode, parse_toml, signature
@@ -53,7 +54,7 @@ def _entry(archive, info, budget):
     try:
         with archive.open(info) as fh:
             data = fh.read(MAX_FILE + 1)
-    except (zipfile.BadZipFile, OSError, ValueError, EOFError, RuntimeError, NotImplementedError) as e:
+    except (zipfile.BadZipFile, zlib.error, OSError, ValueError, EOFError, RuntimeError, NotImplementedError) as e:
         raise MncfError('zip', f'{info.orig_filename}: {e}') from None
     if len(data) > MAX_FILE:
         raise MncfError('size', f'{info.orig_filename}: more than {MAX_FILE} bytes')
@@ -68,7 +69,7 @@ def read_pack(data, trust=None):
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         infos = [i for i in archive.infolist() if not i.orig_filename.endswith('/')]
-    except (zipfile.BadZipFile, OSError, ValueError, EOFError) as e:
+    except (zipfile.BadZipFile, OSError, ValueError, EOFError, NotImplementedError) as e:
         raise MncfError('zip', f'not a ZIP file ({e})') from None
     if len(infos) > MAX_ENTRIES:
         raise MncfError('size', f'the pack has more than {MAX_ENTRIES} entries')

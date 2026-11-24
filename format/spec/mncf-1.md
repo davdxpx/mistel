@@ -593,6 +593,7 @@ The manifest is signed as a file is (section 12). A reader checks each listed fi
 - `format = "mncf-pack/1"` is the first key of the manifest; `name` and at least one `[[file]]` are required; `authors`, `about` and `file_version` are as in a file.
 - `path` is a path inside the pack: parts separated by `/`, none of them empty, `.` or `..`, no `\`, not `pack.toml`, and no path twice. `sha256` is the SHA-256 hash of the file in 64 lower-case hexadecimal digits.
 - A pack whose ZIP has two entries of the same name is refused. Files the manifest does not list are ignored.
+- A reader reads only entries that are stored or deflated, not encrypted, and need a ZIP version of at most 6.3 to extract, so that every reader reads the same packs. An entry that breaks one of these rules, or whose data does not decompress, makes the pack `zip`.
 - Each listed file is `ok`, `hash` (its bytes differ from the manifest: not applied) or `missing`. A pack whose manifest is `invalid` or `revoked` is not applied at all.
 
 ## 14. Versions
@@ -861,7 +862,7 @@ A pack with one of these errors is not used at all:
 
 | Code | Meaning |
 |---|---|
-| `zip` | Not a ZIP file, two entries of the same name, or an entry that is neither stored nor deflated, or is encrypted |
+| `zip` | Not a ZIP file, two entries of the same name, or an entry that is neither stored nor deflated, is encrypted, needs a ZIP version above 6.3, or whose data does not decompress |
 | `size` | More than 4,096 entries, an entry of more than 16 MiB (whatever its header says), or more than 256 MiB in all the entries a reader reads |
 
 | `manifest` | No `pack.toml` at the root, or it is not UTF-8 TOML with LF line ends |

@@ -206,6 +206,8 @@ def pack_results(case, folder):
     z = case.get('zip', {})
     if 'text' in z:
         data = z['text'].encode('utf-8')
+    elif 'hex' in z:
+        data = bytes.fromhex(z['hex'])
     else:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w') as archive:

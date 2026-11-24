@@ -149,7 +149,7 @@ about = "What the case shows."
 [zip]                        # the entries of the ZIP file, and the files they are made from
 "pack.toml" = "files/pack.toml"
 "example.mncf" = "files/example.mncf"
-# or text = "..." for bytes that are not a ZIP file
+# or text = "..." for bytes that are not a ZIP file, or hex = "50 4B ..." for the exact bytes of a broken one
 
 [expect]
 error = "path:../example.mncf"
