@@ -453,7 +453,7 @@ public final class Patches {
     }
 
     private static String hex(BigInteger n) {
-        return "0x" + n.toString(16).toUpperCase(Locale.ROOT);
+        return (n.signum() < 0 ? "-0x" : "0x") + n.abs().toString(16).toUpperCase(Locale.ROOT);
     }
 
     /**

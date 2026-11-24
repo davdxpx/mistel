@@ -1225,7 +1225,8 @@ public final class Converter {
         }
         String last = parts.get(parts.size() - 1);
         int dot = last.lastIndexOf('.');
-        return Patches.buildIdOf(last) != null ? "Patch" : dot < 0 ? last : last.substring(0, dot);
+        String stem = dot < 0 ? last : last.substring(0, dot);
+        return stem.isEmpty() || Patches.buildIdOf(last) != null ? "Patch" : stem;
     }
 
     private static CheatState patchCheat(Item item, String key, Rep rep, List<Patches.Run> runs, CodeModule module,
@@ -1337,7 +1338,7 @@ public final class Converter {
             PatchFile f = files.get(k);
             String bid = bids.get(k);
             Set<String> same = versions.get(Arrays.asList(src.version(), src.moduleName()));
-            boolean shared = src.version() != null && same != null && same.size() > 1;
+            boolean shared = nonEmpty(src.version()) && same != null && same.size() > 1;
             String named = shared ? bid : src.version();
             String key = nonEmpty(src.buildKey()) ? src.buildKey() : nonEmpty(named) ? named : bid;
             CodeModule module = src.module();
@@ -1381,7 +1382,8 @@ public final class Converter {
             List<CheatState> out = new ArrayList<>();
             for (int i = 1; i <= count; i++) {
                 Patch p = f.patches().get(i - 1);
-                String title = nonEmpty(p.name()) ? p.name() : count == 1 ? set : set + " " + i;
+                String own = nonEmpty(p.name()) && !CREDIT_NAME.matcher(p.name()).find() ? p.name() : "";
+                String title = !own.isEmpty() ? own : count == 1 ? set : set + " " + i;
                 Rep rep = new Rep("", title, key, CheatReport.PATTERN);
                 Patches.ImageRuns written = Patches.imageRuns(p, module.image().length);
                 for (String d : written.dropped()) {
@@ -1397,6 +1399,13 @@ public final class Converter {
                 } catch (Atmosphere.Unclear u) {
                     rep.outcome = CheatReport.UNREADABLE;
                     rep.why = u.why;
+                    rep.patterns = 0;
+                    rep.fixed = 0;
+                    rep.values = 0;
+                    rep.notes = new ArrayList<>();
+                    for (String d : written.dropped()) {
+                        rep.notes.add("left out " + d);
+                    }
                     report.unreadable.add(title + " (" + u.why + ")");
                     report.cheats.add(rep);
                     continue;

@@ -192,6 +192,10 @@ public final class PatchFilesTest {
             sets.add(Converter.setName(n));
         }
         Check.equal(Arrays.asList("60fps", "My mod", "b", "Patch", "Patch"), sets);
+        Check.equal("x", Converter.setName("x/.ips"));
+        Check.equal("Patch", Converter.setName(".ips"));
+        Patch neg = new Patch("", true, Collections.singletonList(new Patch.Record(BigInteger.valueOf(-5), hex("01"))));
+        Check.equal(Collections.singletonList("-0x5: 1 byte in the NSO header"), Patches.imageRuns(neg, 0x10).dropped());
     }
 
     public static void testConvert() throws Exception {
@@ -267,6 +271,10 @@ public final class PatchFilesTest {
         f = Mncf.load(Fixtures.utf8(Converter.fromPatches(Arrays.asList(a, c), options()).text()));   // one version, two builds
         Check.equal(Arrays.asList(Synthetic.BUILD_ID, "1122334455667788"), new ArrayList<>(f.builds().keySet()));
         Check.equal(1, f.cheats().size());
+        PatchSource noVersion = PatchSource.builder(data).module(mod).fileName(Synthetic.BUILD_ID + ".ips").version("")
+                .build();
+        Check.equal(Collections.singletonList(Synthetic.BUILD_ID), new ArrayList<>(Mncf.load(Fixtures.utf8(
+                Converter.fromPatches(noVersion, options()).text())).builds().keySet()));
         final PatchSource sameKey = PatchSource.builder(data).module(mod).fileName("1122334455667788.ips")
                 .buildKey("1.0.0").build();
         Check.throwsWith(ConvertException.class, "two build IDs", new Check.Action() {
@@ -275,6 +283,27 @@ public final class PatchFilesTest {
                 Converter.fromPatches(Arrays.asList(a, sameKey), options());
             }
         });
+    }
+
+    public static void testCreditsNameNoPatchAndFailuresKeepNoCounts() throws Exception {
+        CodeModule base = ModuleTest.module(true);
+        Map<String, long[]> sections = new LinkedHashMap<>();
+        for (String name : base.sectionNames()) {
+            sections.put(name, new long[] {base.sectionStart(name), base.sectionEnd(name)});
+        }
+        CodeModule mod = new CodeModule(base.image(), sections, Synthetic.BUILD_ID, null,
+                Collections.singletonList(new CodeModule.Run(0x1010, 4)));
+        String text = "@flag offset_shift 0x100\n// Patches by Ann\n@enabled\n00001008 691200B9\n"
+                + "// Half\n@enabled\n00001008 691200B9\n00001010 1F2003D5\n";
+        Conversion conv = Converter.fromPatches(PatchSource.builder(text.getBytes(StandardCharsets.UTF_8)).module(mod)
+                .fileName("p.pchtxt").setName("S").build(), options());
+        List<Object> reps = new ArrayList<>();
+        for (CheatReport c : conv.report().cheats()) {
+            reps.add(Arrays.<Object>asList(c.name(), c.outcome(), c.patterns(), c.fixed(), c.notes()));
+        }
+        Check.equal(Arrays.asList(Arrays.<Object>asList("S 1", "pattern", 1, 0, Collections.emptyList()),
+                Arrays.<Object>asList("Half", "unreadable", 0, 0, Collections.emptyList())), reps);
+        Check.equal(Collections.singletonList("Ann"), Mncf.load(Fixtures.utf8(conv.text())).authors());
     }
 
     public static void testValuesAndData() throws Exception {
