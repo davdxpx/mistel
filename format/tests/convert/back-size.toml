@@ -1,0 +1,72 @@
+about = "The size of the file: a cheat whose entry, with the section markers before it, would make the file larger than the limit is left out (atmosphere:too-big), while a later one that fits is written. Atmosphère's dmnt reads a file below 64 KiB; the case sets 160 bytes."
+to = "atmosphere"
+build = "1.0.0"
+prefer = "core"
+limits = { size = 160 }
+text = '''
+format = "mncf/1"
+name = "Back size"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "setup"
+name = "Setup"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "first"
+name = "First"
+group = "Shop"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "second"
+name = "Second, with a name long enough not to fit any more"
+group = "Shop"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x24 }
+  type = "u32"
+  value = 2
+
+[[cheat]]
+id = "third"
+name = "Third"
+group = "Shop"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x28 }
+  type = "u32"
+  value = 3
+
+[[cheat]]
+id = "fourth"
+name = "Fourth"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x2c }
+  type = "u32"
+  value = 4
+'''
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-size.txt"
+written = { setup = "core", first = "core", third = "core" }
+reasons = { second = "atmosphere:too-big", fourth = "atmosphere:too-big" }

@@ -1,7 +1,7 @@
 {Master setup}
 04000000 00001FF0 D503201F
 
-[Section A]
+[--SectionStart:Section A--]
 
 [Money]
 04000000 00001008 B9001269
@@ -9,7 +9,9 @@
 [Branch away]
 04000000 0000100C 14000100
 
-[Data]
+[--SectionEnd:Section A--]
+
+[--SectionStart:Data--]
 
 [Data flag]
 04000000 00003010 00000001
@@ -35,7 +37,9 @@
 02100000 00000104 00000001
 20000000
 
-[Items]
+[--SectionEnd:Data--]
+
+[--SectionStart:Items--]
 
 [Cave jump]
 80000002
@@ -45,8 +49,7 @@
 040A0000 00001010 90000008
 20000000
 
-[Items]
-20000001
+[--SectionEnd:Items--]
 
 [Speed]
 C4000000 00000000 00000100

@@ -464,6 +464,58 @@ made for 1.0.0
         out = convert.to_atmosphere_all(f, prefer_cheats={'money': 'core'})
         self.assertEqual(out[0].report.reasons, {})                     # Money falls back to raw: no module
 
+    def test_back_keeps_the_file_below_64_kib(self):
+        head = ('format = "mncf/1"\nname = "Big"\nextensions = { optional = ["raw/1"] }\n'
+                f'[game]\nplatform = "switch"\nid = "{syn.GAME_ID}"\n'
+                f'[builds."1.0.0"]\nmodules = {{ main = "{syn.BUILD_ID}" }}\n')
+        code = '\n'.join(['04100000 00000010 00000001'] * 83)                  # 249 words
+        cheats = ''.join(f'[[cheat]]\nid = "c{i}"\nname = "Cheat {i}"\n[[cheat.raw]]\nsyntax = "atmosphere"\n'
+                         f'build = "1.0.0"\ncode = """\n{code}\n"""\n' for i in range(40))
+        f = mncf.load((head + cheats).encode())
+        _, text, report = convert.to_atmosphere(f, '1.0.0')
+        size = len(text.encode('utf-8'))
+        self.assertLessEqual(size, 0xFFFF)
+        self.assertGreater(size + len(code) + 12, 0xFFFF)                       # one entry more would not fit
+        self.assertEqual(set(report.reasons.values()), {'atmosphere:too-big'})
+        self.assertEqual(len(report.written) + len(report.reasons), 40)
+        self.assertEqual(len(atm.parse(text)), len(report.written))
+        _, text, report = convert.to_atmosphere(f, '1.0.0', limits=convert.NO_LIMITS)
+        self.assertEqual((len(report.written), report.reasons), (40, {}))
+        self.assertGreater(len(text.encode('utf-8')), 0xFFFF)
+
+    def test_limits_and_names(self):
+        for bad in (0, -1, True, 1.5, '127'):
+            with self.assertRaises(ValueError):
+                convert.AtmosphereLimits(entries=bad)
+        self.assertEqual(convert.atmosphere_name('a]b}c'), 'a)b}c')
+        self.assertEqual(convert.atmosphere_name('a]b}c', master=True), 'a]b)c')
+        self.assertEqual(convert.atmosphere_name('é' * 40), 'é' * 31)   # the 32nd would be cut in half
+        self.assertEqual(convert.atmosphere_name('a\u2028b\x00c', limit=None), 'a b c')
+
+    def test_several_files_back_in_one(self):
+        a = mncf.load(convert.from_atmosphere(source(module(), text='[Money]\n04000000 00001008 B9001269\n'),
+                                              game_id=syn.GAME_ID).text.encode())
+        b = mncf.load(convert.from_atmosphere(source(text='[Heap]\n04100000 00000010 00000002\n'),
+                                              game_id=syn.GAME_ID).text.encode())
+        with self.assertRaises(ValueError):
+            convert.to_atmosphere_merged([convert.BackSource(a, prefer='best')])
+        # Builds and modules are matched by the first 16 digits of main's build ID, in any case.
+        out = convert.to_atmosphere_merged([convert.BackSource(a, prefer='core'), convert.BackSource(b)],
+                                           {syn.BUILD_ID.lower() + '00' * 24: module()})
+        self.assertEqual([(x.name, x.builds, x.reason) for x in out],
+                         [(f'{syn.BUILD_ID}.txt', ['1.0.0', '1.0.0'], None)])
+        self.assertEqual([r.written for r in out[0].reports], [[('money', 'core')], [('heap', 'raw')]])
+        again = mncf.load(convert.from_atmosphere(source(module(), text=out[0].text),
+                                                  game_id=syn.GAME_ID).text.encode())
+        self.assertEqual([c.name for c in again.cheats], ['Money', 'Heap'])
+        # A build that only a module names is written from what the files can place without their own offsets.
+        other = CodeModule(module().image, module().sections, '1122334455667788')
+        out = convert.to_atmosphere_merged([convert.BackSource(a, prefer='core'), convert.BackSource(b)],
+                                           {'1122334455667788': other})
+        self.assertEqual([(x.name, x.builds) for x in out],
+                         [(f'{syn.BUILD_ID}.txt', ['1.0.0', '1.0.0']), ('1122334455667788.txt', [None, None])])
+        self.assertEqual([r.reasons for r in out[1].reports], [{}, {'heap': 'build-unknown'}])
+
     def test_compare_reads_the_original_leniently(self):
         original = '// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n'
         same, differ, missing = convert.compare(original, '[Heap]\n04100000 00000010 00000001\n')

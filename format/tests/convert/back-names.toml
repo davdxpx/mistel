@@ -1,0 +1,113 @@
+about = "Names as Atmosphère's dmnt holds them: the bracket that would end a name early becomes ), a control character a space, a name is cut to 63 bytes at a character boundary, the group's name alike in both of its section markers, and a name that an entry has already gets (2)."
+to = "atmosphere"
+build = "1.0.0"
+prefer = "core"
+text = '''
+format = "mncf/1"
+name = "Back names"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "setup"
+name = "Setup } and ] here"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "coins"
+name = "Coins ] x99 {fast}"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u32"
+  value = 99
+
+[[cheat]]
+id = "long"
+name = "Every shop sells each item for one coin, from the first day oné and the rest of a name that Atmosphère does not keep"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x24 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "exact"
+name = "YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x28 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "hp"
+name = "Max HP"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x2c }
+  type = "u32"
+  value = 999
+
+[[cheat]]
+id = "hp-again"
+name = "Max HP"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x30 }
+  type = "u32"
+  value = 999
+
+[[cheat]]
+id = "lines"
+name = "Line\tone\nLine two"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x34 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "in-group"
+name = "In the group"
+group = "A group whose name is long enough to be cut in its markers ] too"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x38 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "x-1"
+name = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x3c }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "x-2"
+name = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x40 }
+  type = "u32"
+  value = 1
+'''
+
+[expect]
+name = "0123456789ABCDEF.txt"
+file = "back-names.txt"
+written = { setup = "core", coins = "core", long = "core", exact = "core", hp = "core", "hp-again" = "core", lines = "core", "in-group" = "core", "x-1" = "core", "x-2" = "core" }

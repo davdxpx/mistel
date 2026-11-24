@@ -1,0 +1,149 @@
+about = "Two files of one game in one Atmosphère file for each build, matched by the build ID of main, in one set of limits (12 words an entry here): one master entry with the code of the first file's master, the second's left out (atmosphere:too-long) with the cheat that requires it; each cheat after the cheats it requires, one that requires a cheat left out left out (requires:<id>); a name the first file has already gets (2). The first file does not name the build 1122334455667788, so it gives that file its cheats on fixed places; a build without main cannot be a file."
+to = "atmosphere"
+build_id = "0123456789ABCDEF"
+limits = { words = 12 }
+
+[[source]]
+prefer = "core"
+text = '''
+format = "mncf/1"
+name = "Shop cheats"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "setup-a"
+name = "Setup A"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "hp"
+name = "Max HP"
+group = "Stats"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u32"
+  value = 999
+
+[[cheat]]
+id = "boost"
+name = "Boost"
+requires = ["unlock"]
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x24 }
+  type = "u32"
+  value = 2
+
+[[cheat]]
+id = "unlock"
+name = "Unlock"
+run = "once"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x28 }
+  type = "u32"
+  value = 1
+
+[[cheat]]
+id = "combo"
+name = "Combo"
+requires = ["base"]
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x2c }
+  type = "u32"
+  value = 3
+
+[[cheat]]
+id = "base"
+name = "Base"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x30 }
+  type = "u32"
+  value = 1
+'''
+
+[[source]]
+prefer = "core"
+text = '''
+format = "mncf/1"
+name = "Speed cheats"
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."v1"]
+modules = { main = "0123456789ABCDEF" }
+
+[builds."v2"]
+modules = { main = "1122334455667788" }
+
+[builds."v3"]
+modules = { subsdk0 = "0F0E0D0C0B0A0908" }
+
+[[cheat]]
+id = "setup-b"
+name = "Setup B"
+master = true
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x40 }
+  type = "bytes"
+  value = "01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10"
+
+[[cheat]]
+id = "speed"
+name = "Speed"
+requires = ["setup-b"]
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x50 }
+  type = "u32"
+  value = 2
+
+[[cheat]]
+id = "hp"
+name = "Max HP"
+group = "Stats"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x54 }
+  type = "u32"
+  value = 500
+
+[[cheat]]
+id = "jump"
+name = "Jump"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+'''
+
+[expect]
+back = [
+  { name = "0123456789ABCDEF.txt", builds = ["1.0.0", "v1"] },
+  { name = "1122334455667788.txt", builds = ["", "v2"] },
+  { reason = "atmosphere:module", builds = ["", "v3"] },
+]
+name = "0123456789ABCDEF.txt"
+file = "back-merged.txt"
+written = [{ "setup-a" = "core", hp = "core", base = "core", combo = "core" }, { hp = "core" }]
+reasons = [{ unlock = "atmosphere:run", boost = "requires:unlock" }, { jump = "atmosphere:no-module", "setup-b" = "atmosphere:too-long", speed = "requires:setup-b" }]
