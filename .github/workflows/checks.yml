@@ -102,7 +102,8 @@ jobs:
       - name: The dump, byte for byte as Python's
         shell: bash
         run: |
-          runner=$(ls build/mncf_conformance build/Debug/mncf_conformance.exe 2>/dev/null | head -n 1)
+          runner=build/mncf_conformance
+          if [ ! -f "$runner" ]; then runner=build/Debug/mncf_conformance.exe; fi
           python format/lib/c/tests/compare_dump.py "$runner"
 
   c-reader-android:

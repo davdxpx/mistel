@@ -388,12 +388,12 @@ static int same(const jv *expected, const jv *actual, const char *key)
 
 /* ---- Writing JSON as json.dumps(indent=1, sort_keys=True) ------------------------------------------- */
 
-typedef struct out {
+typedef struct outbuf {
     char *data;
     size_t size, cap;
-} out;
+} outbuf;
 
-static void put(out *o, const char *s, size_t n)
+static void put(outbuf *o, const char *s, size_t n)
 {
     if (o->size + n + 1 > o->cap) {
         size_t cap = o->cap == 0 ? 65536 : o->cap;
@@ -412,12 +412,12 @@ static void put(out *o, const char *s, size_t n)
     o->data[o->size] = 0;
 }
 
-static void puts_(out *o, const char *s)
+static void puts_(outbuf *o, const char *s)
 {
     put(o, s, strlen(s));
 }
 
-static void indent(out *o, int level)
+static void indent(outbuf *o, int level)
 {
     int i;
     for (i = 0; i < level; i++) {
@@ -427,7 +427,7 @@ static void indent(out *o, int level)
 
 /* A string as json.dumps writes it with ensure_ascii: escapes for '"', '\', control characters and
  * everything outside space to '~', astral characters as surrogate pairs. */
-static void json_string(out *o, const char *s, size_t n)
+static void json_string(outbuf *o, const char *s, size_t n)
 {
     size_t i = 0;
     put(o, "\"", 1);
@@ -494,7 +494,7 @@ static void json_string(out *o, const char *s, size_t n)
 }
 
 /* The shortest text that reads back as the same double, laid out as Python's repr() of a float. */
-static void float_repr(out *o, double d)
+static void float_repr(outbuf *o, double d)
 {
     char buf[64], digits[32];
     int precision, exponent = 0, nd = 0, point;
@@ -576,7 +576,7 @@ static int cmp_keys(const char *a, size_t an, const char *b, size_t bn)
     return an < bn ? -1 : an > bn;
 }
 
-static void json_write(out *o, const jv *v, int level)
+static void json_write(outbuf *o, const jv *v, int level)
 {
     size_t i;
     char buf[64];
@@ -1865,7 +1865,7 @@ int main(int argc, char **argv)
     int dump = 0, i;
     size_t total = 0, failed = 0, skipped = 0, k;
     jv *all = j_new(J_DICT);
-    out o;
+    outbuf o;
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dump") == 0) {
             dump = 1;
