@@ -613,6 +613,8 @@ public final class ConformanceTest {
         byte[] data;
         if (z.containsKey("text")) {
             data = ((String) z.get("text")).getBytes(StandardCharsets.UTF_8);
+        } else if (z.containsKey("hex")) {
+            data = hex((String) z.get("hex"));
         } else {
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             try (ZipOutputStream archive = new ZipOutputStream(buf)) {

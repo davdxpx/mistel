@@ -1,0 +1,8 @@
+about = "An entry whose deflated data does not decompress makes the pack a bad ZIP file, not an error of the reader."
+
+[zip]
+# pack.toml, deflated, with the first block of type 3, which deflate does not have
+hex = "50 4B 03 04 14 00 00 00 08 00 00 00 21 50 DF 03 20 2D 4C 00 00 00 94 00 00 00 09 00 00 00 70 61 63 6B 2E 74 6F 6D 6C 4F CB 2F CA 4D 2C 51 B0 55 50 CA CD 4B 4E D3 2D 48 4C CE D6 37 54 E2 CA 4B CC 4D 05 09 BA 56 24 E6 16 E4 A4 2A 71 71 45 47 A7 65 E6 A4 C6 C6 72 15 24 96 64 80 A4 52 21 52 7A 20 7D 4A 5C C5 19 89 46 A6 66 20 71 03 0A 81 12 17 00 50 4B 01 02 14 00 14 00 00 00 08 00 00 00 21 50 DF 03 20 2D 4C 00 00 00 94 00 00 00 09 00 00 00 00 00 00 00 00 00 00 00 80 01 00 00 00 00 70 61 63 6B 2E 74 6F 6D 6C 50 4B 05 06 00 00 00 00 01 00 01 00 37 00 00 00 73 00 00 00 00 00"
+
+[expect]
+error = "zip"
