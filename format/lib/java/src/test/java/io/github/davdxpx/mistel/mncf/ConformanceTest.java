@@ -240,13 +240,26 @@ public final class ConformanceTest {
         if ("atmosphere".equals(c.get("to"))) {
             return backResults(c, folder);
         }
+        boolean patches = "patches".equals(c.get("from"));
         List<Source> sources = new ArrayList<>();
+        List<PatchSource> patchSources = new ArrayList<>();
         for (Object item : list(c.get("source"))) {
             Map<String, Object> src = map(item);
             CodeModule module = src.containsKey("module")
                     ? caseModule(map(src.get("module")), (String) src.get("build_id")) : null;
-            sources.add(Source.builder((String) src.get("build_id"), (String) src.get("text"))
-                    .version((String) src.get("version")).module(module).buildKey((String) src.get("build_key")).build());
+            if (patches) {
+                byte[] data = src.containsKey("hex") ? hex((String) src.get("hex"))
+                        : ((String) src.get("text")).getBytes(StandardCharsets.UTF_8);
+                patchSources.add(PatchSource.builder(data).module(module).fileName((String) src.get("file_name"))
+                        .setName((String) src.get("set"))
+                        .moduleName(src.containsKey("module_name") ? (String) src.get("module_name") : "main")
+                        .buildId((String) src.get("build_id")).version((String) src.get("version"))
+                        .buildKey((String) src.get("build_key")).build());
+            } else {
+                sources.add(Source.builder((String) src.get("build_id"), (String) src.get("text"))
+                        .version((String) src.get("version")).module(module).buildKey((String) src.get("build_key"))
+                        .build());
+            }
         }
         Converter.Options options = Converter.Options.forGame((String) c.get("game"))
                 .platform(c.containsKey("platform") ? (String) c.get("platform") : "switch")
@@ -255,7 +268,8 @@ public final class ConformanceTest {
                 .values(!Boolean.FALSE.equals(c.get("values")));
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            out.put("text", Converter.fromAtmosphere(sources, options).text());
+            out.put("text", patches ? Converter.fromPatches(patchSources, options).text()
+                    : Converter.fromAtmosphere(sources, options).text());
         } catch (ConvertException e) {
             out.put("error", e.code());
         }

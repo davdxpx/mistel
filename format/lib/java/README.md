@@ -128,6 +128,19 @@ Back to Atmosphère, with the build's main module a converter finds the patterns
 
 A converted cheat requires the master code only where it depends on it. Lines of a source that are neither names nor code go into the file's `about`, and an entry whose code mixes words with other text is left out and named there.
 
+Patch files of a code module, IPS, IPS32 and IPSwitch text (`.pchtxt`):
+
+```java
+PatchSource patch = PatchSource.builder(ipsBytes).module(module)
+        .fileName("exefs_patches/60fps/A1B2C3D4E5F60718.ips").version("1.0.2").build();
+Conversion conv = Converter.fromPatches(patch,          // or a list of sources; throws ConvertException with
+        Converter.Options.forGame("0100000000ABC000")  // code() "patch" (PatchFileException) or "source"
+                .origin("60fps.zip"));
+PatchFile file = Patches.read(ipsBytes);                // the file itself: its patches and their records
+```
+
+A patch file holds no original bytes, so the module it patches is required: `expect` comes from it. `moduleName` names a module other than `main`; the build ID comes from the file (`@nsobid-`), its name, `buildId` or the module. An IPS file becomes one cheat that is on by default, named by its patch set (`setName`, or the folder in `exefs_patches/`); each patch of a `.pchtxt` file becomes one cheat, named by its comment and on where it is `@enabled`. Patches get patterns and player values as Atmosphère cheats do, and what a file writes into data becomes a write with the original bytes as `expect`.
+
 A file may have at most 16 MiB (`Mncf.MAX_FILE`). A pack may have at most 4096 entries, none of more than 16 MiB whatever its header claims, and a reader reads at most 256 MiB from it; beyond that the error code is `size`.
 
 Addresses and offsets are unsigned 64-bit numbers in a `long`. Values are a `Long`, a `BigInteger` for a whole number of 2^63 or more, a `Double` or a `Boolean`; `longValue()` gives the 64 bits of any whole number. All result types are immutable. A `Module` and a `CodeModule` keep the image array they are given without copying it, so the caller must not change it afterwards. Pattern search is fast on large modules: it looks for the pattern's longest run of fixed bytes with a skip table and then checks the rest.
