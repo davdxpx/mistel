@@ -57,6 +57,67 @@ jobs:
       - name: Build, unit tests and conformance suite
         run: sh format/lib/java/build.sh
 
+  c-reader:
+    name: C library, ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            os: ubuntu-latest
+            cc: gcc
+          - name: Clang
+            os: ubuntu-latest
+            cc: clang
+          - name: GCC, AddressSanitizer and UndefinedBehaviorSanitizer
+            os: ubuntu-latest
+            cc: gcc
+            sanitize: address,undefined
+          - name: Clang, AddressSanitizer and UndefinedBehaviorSanitizer, amalgamation
+            os: ubuntu-latest
+            cc: clang
+            sanitize: address,undefined
+            amalgamation: 'ON'
+          - name: MSVC
+            os: windows-latest
+          - name: MSVC, amalgamation
+            os: windows-latest
+            amalgamation: 'ON'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Configure
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.cc }}" ]; then export CC="${{ matrix.cc }}"; fi
+          cmake -S format/lib/c -B build -DCMAKE_BUILD_TYPE=Debug -DMNCF_WERROR=ON \
+            -DMNCF_SANITIZE="${{ matrix.sanitize }}" -DMNCF_AMALGAMATION=${{ matrix.amalgamation || 'OFF' }}
+      - name: Build
+        run: cmake --build build --config Debug
+      - name: Unit tests and conformance suite
+        run: ctest --test-dir build -C Debug --output-on-failure
+      - name: The dump, byte for byte as Python's
+        shell: bash
+        run: |
+          runner=$(ls build/mncf_conformance build/Debug/mncf_conformance.exe 2>/dev/null | head -n 1)
+          python format/lib/c/tests/compare_dump.py "$runner"
+
+  c-reader-android:
+    name: C library for Android (NDK, arm64-v8a, API 33)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with the NDK
+        run: |
+          cmake -S format/lib/c -B build -DCMAKE_BUILD_TYPE=Release -DMNCF_WERROR=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33
+          cmake --build build
+          file build/libmncf.a build/mncf_conformance build/mncf_unit
+
   tools:
     name: mistel tools
     runs-on: ubuntu-latest

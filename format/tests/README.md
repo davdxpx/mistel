@@ -10,7 +10,7 @@ Made-up `.mncf` files and `.mncp` packs, each with the result every reader of `m
 | `passes/` | One pass case per `.toml` file: a file, a runtime, and steps of what the player and the game do, each with the changes of one pass and the states after it ([spec, section 11.5](../spec/mncf-1.md#115-a-pass)) |
 | `sign.py` | Writes the signed files from their unsigned sources |
 
-Both libraries run the whole suite: `python format/lib/python/tests/conformance.py` and `sh format/lib/java/build.sh`. Their `--dump` output is the same, case for case.
+The libraries run the whole suite: `python format/lib/python/tests/conformance.py`, `sh format/lib/java/build.sh` and, for C, `mncf_conformance format/tests` (see [`lib/c/`](../lib/c/), which has no converter yet and leaves the conversion cases out). Their `--dump` output is the same, case for case; `format/lib/c/tests/compare_dump.py` compares the C runner's with Python's byte for byte.
 
 ## A file case
 
