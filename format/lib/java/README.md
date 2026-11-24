@@ -117,6 +117,8 @@ Converter.toAtmosphere(file, "1.0.1", newModule, "core", choices);   // a build 
                                                                       // its patterns, with the player's values
 back.written();                                         // per cheat id: "raw" or "core"
 back.reasons();                                         // per cheat left out: "build-unknown", "atmosphere:toggle"...
+Converter.toAtmosphere(file, "1.0.0", module, "raw", choices,
+        Collections.singletonMap("money", "core"));    // core for one cheat: the value the player set
 
 for (Converter.BuildExport b : Converter.toAtmosphereAll(file, modulesByBuild, "raw", choices)) {
     b.build();                                          // every build of the file, in its order
@@ -124,7 +126,7 @@ for (Converter.BuildExport b : Converter.toAtmosphereAll(file, modulesByBuild, "
 }
 ```
 
-Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say.
+Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say. The file keeps Atmosphère's limits: one master entry with the code of every master cheat, and at most 127 other entries (group starts and ends count) of at most 256 words; what does not fit is left out with `atmosphere:too-many` or `atmosphere:too-long`. A group is ended where a cheat in no group follows it.
 
 A converted cheat requires the master code only where it depends on it. Lines of a source that are neither names nor code go into the file's `about`, and an entry whose code mixes words with other text is left out and named there.
 

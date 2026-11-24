@@ -171,6 +171,41 @@ public final class PeanutsGapsTest {
         Check.isTrue(out.get(1).export() == null, "a build without main has no file");
     }
 
+    public static void testBackPerCheatAndRoundTripOfGroups() throws Exception {
+        final MncfFile f = convert(Source.builder(Synthetic.BUILD_ID, Synthetic.CHEATS).version("1.0.0")
+                .module(ModuleTest.module(true)).build());
+        Check.throwsWith(IllegalArgumentException.class, "not 'best'", new Check.Action() {
+            @Override
+            public void run() throws Exception {
+                Converter.toAtmosphere(f, "1.0.0", null, "raw", null, Collections.singletonMap("money", "best"));
+            }
+        });
+        Converter.Export back = Converter.toAtmosphere(f, "1.0.0", ModuleTest.module(true), "raw", null,
+                Collections.singletonMap("money", "core"));
+        Check.equal(Arrays.asList("core", "raw"), Arrays.asList(back.written().get("money"),
+                back.written().get("branch-away")));
+        // The groups come back as they were: the cheats after a group's end are in no group again. (The master
+        // entry comes first in Atmosphère, outside every group.)
+        MncfFile again = convert(Source.builder(Synthetic.BUILD_ID, back.text()).version("1.0.0")
+                .module(ModuleTest.module(true)).build());
+        List<String> want = new ArrayList<>();
+        List<String> got = new ArrayList<>();
+        for (Cheat c : f.cheats()) {
+            if (!c.isMaster()) {
+                want.add(c.id() + "=" + c.group());
+            }
+        }
+        for (Cheat c : again.cheats()) {
+            if (!c.isMaster()) {
+                got.add(c.id() + "=" + c.group());
+            }
+        }
+        Check.equal(want, got);
+        List<Converter.BuildExport> all = Converter.toAtmosphereAll(f, null, "raw", null,
+                Collections.singletonMap("money", "core"));
+        Check.equal(Collections.<String, String>emptyMap(), all.get(0).export().reasons());   // Money falls back
+    }
+
     public static void testCompareReadsTheOriginalLeniently() throws Exception {
         String original = "// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n";
         Converter.Comparison cmp = Converter.compare(original, "[Heap]\n04100000 00000010 00000001\n", false);

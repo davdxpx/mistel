@@ -223,8 +223,15 @@ public final class ConformanceTest {
             choices = b.build();
         }
         try {
+            Map<String, String> preferCheats = null;
+            if (c.containsKey("prefer_cheats")) {
+                preferCheats = new LinkedHashMap<>();
+                for (Map.Entry<String, Object> e : map(c.get("prefer_cheats")).entrySet()) {
+                    preferCheats.put(e.getKey(), (String) e.getValue());
+                }
+            }
             Converter.Export export = Converter.toAtmosphere(f, (String) c.get("build"), module,
-                    c.containsKey("prefer") ? (String) c.get("prefer") : "raw", choices);
+                    c.containsKey("prefer") ? (String) c.get("prefer") : "raw", choices, preferCheats);
             out.put("name", export.fileName());
             out.put("text", export.text());
             out.put("written", new LinkedHashMap<Object, Object>(export.written()));

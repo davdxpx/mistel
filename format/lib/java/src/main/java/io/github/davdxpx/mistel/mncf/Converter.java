@@ -1280,6 +1280,19 @@ public final class Converter {
      */
     public static List<BuildExport> toAtmosphereAll(MncfFile f, Map<String, CodeModule> modules, String prefer,
             Choices choices) {
+        return toAtmosphereAll(f, modules, prefer, choices, null);
+    }
+
+    /**
+     * Returns every build of a loaded file as an Atmosphère cheat file, as
+     * {@link #toAtmosphereAll(MncfFile, Map, String, Choices)} does, with raw or core chosen for
+     * single cheats.
+     *
+     * @param preferCheats "raw" or "core" by cheat id, where a cheat should differ from prefer;
+     *     may be null
+     */
+    public static List<BuildExport> toAtmosphereAll(MncfFile f, Map<String, CodeModule> modules, String prefer,
+            Choices choices, Map<String, String> preferCheats) {
         List<BuildExport> out = new ArrayList<>();
         for (Map.Entry<String, Build> e : f.builds().entrySet()) {
             if (!e.getValue().modules().containsKey("main")) {
@@ -1287,7 +1300,8 @@ public final class Converter {
                 continue;
             }
             CodeModule module = modules == null ? null : modules.get(e.getKey());
-            out.add(new BuildExport(e.getKey(), toAtmosphere(f, e.getKey(), module, prefer, choices), null));
+            out.add(new BuildExport(e.getKey(), toAtmosphere(f, e.getKey(), module, prefer, choices, preferCheats),
+                    null));
         }
         return out;
     }
@@ -1321,6 +1335,46 @@ public final class Converter {
      */
     public static Export toAtmosphere(MncfFile f, String buildKey, CodeModule module, String prefer,
             Choices choices) {
+        return toAtmosphere(f, buildKey, module, prefer, choices, null);
+    }
+
+    /** Entries of an Atmosphère file besides the master: dmnt holds 0x80, the first the master. */
+    static final int ATM_ENTRIES = 127;
+    /** Words of one entry. */
+    static final int ATM_WORDS = 0x100;
+
+    private static int wordCount(List<String> lines) {
+        int n = 0;
+        for (String line : lines) {
+            n += Py.splitSpace(line).size();
+        }
+        return n;
+    }
+
+    /**
+     * Returns the cheats of a loaded file as an Atmosphère cheat file for one build, as
+     * {@link #toAtmosphere(MncfFile, String, CodeModule, String, Choices)} does, with raw or core
+     * chosen for single cheats, such as one whose value the player set. The file keeps
+     * Atmosphère's limits: one master entry with the code of every master cheat, and up to 127
+     * other entries of up to 256 words each; what does not fit is left out with
+     * {@code atmosphere:too-many} or {@code atmosphere:too-long}.
+     *
+     * @param preferCheats "raw" or "core" by cheat id, where a cheat should differ from prefer;
+     *     may be null
+     * @throws IllegalArgumentException as the other forms do, or for a preference that is neither
+     *     "raw" nor "core"
+     */
+    public static Export toAtmosphere(MncfFile f, String buildKey, CodeModule module, String prefer,
+            Choices choices, Map<String, String> preferCheats) {
+        Map<String, String> modes = preferCheats == null ? Collections.<String, String>emptyMap() : preferCheats;
+        List<String> all = new ArrayList<>();
+        all.add(prefer);
+        all.addAll(modes.values());
+        for (String mode : all) {
+            if (!"raw".equals(mode) && !"core".equals(mode)) {
+                throw new IllegalArgumentException("prefer is \"raw\" or \"core\", not " + Py.repr(mode));
+            }
+        }
         Build build = f.builds().get(buildKey);
         String mainId;
         if (build != null) {
@@ -1340,6 +1394,8 @@ public final class Converter {
         Map<String, String> reasons = new LinkedHashMap<>();
         List<Atmosphere.Out> entries = new ArrayList<>();
         String group = null;
+        String master = null;
+        List<String> masterLines = new ArrayList<>();
         List<Cheat> cheats = new ArrayList<>(f.cheats());
         Collections.sort(cheats, new Comparator<Cheat>() {
             @Override
@@ -1376,12 +1432,18 @@ public final class Converter {
                 reasons.put(c.id(), "build-unknown");
                 continue;
             }
-            if (raw != null && "raw".equals(prefer)) {
+            String mode = modes.containsKey(c.id()) ? modes.get(c.id()) : prefer;
+            if (raw != null && "raw".equals(mode)) {
                 lines = rawLines;
                 how = "raw";
             } else {
                 try {
-                    lines = Atmosphere.formatWords(coreWords(c, buildKey, module, chosen));
+                    List<Long> words = coreWords(c, buildKey, module, chosen);
+                    if (words.size() > ATM_WORDS) {
+                        throw new Atmosphere.Unclear(words.size() + " words, more than an Atmosph\u00E8re entry holds",
+                                "atmosphere:too-long");
+                    }
+                    lines = Atmosphere.formatWords(words);
                     how = "core";
                 } catch (Atmosphere.Unclear u) {
                     if (raw == null) {
@@ -1393,14 +1455,44 @@ public final class Converter {
                     how = "raw";
                 }
             }
-            if (!java.util.Objects.equals(c.group(), group) && !c.isMaster()) {
-                group = c.group();
-                if (group != null && !group.isEmpty()) {
-                    entries.add(new Atmosphere.Out(group, false, Collections.<String>emptyList()));
-                }
+            if (wordCount(lines) > ATM_WORDS) {
+                skipped.put(c.id(), wordCount(lines) + " words, more than an Atmosph\u00E8re entry holds");
+                reasons.put(c.id(), "atmosphere:too-long");
+                continue;
             }
-            entries.add(new Atmosphere.Out(c.name(), c.isMaster(), lines));
+            if (c.isMaster()) {
+                // Atmosphère runs one master entry: the code of every master cheat goes into it, in file order.
+                if (wordCount(masterLines) + wordCount(lines) > ATM_WORDS) {
+                    skipped.put(c.id(), "the master entry would hold more than 256 words");
+                    reasons.put(c.id(), "atmosphere:too-long");
+                    continue;
+                }
+                if (master == null) {
+                    master = c.name();
+                }
+                masterLines.addAll(lines);
+                written.put(c.id(), how);
+                continue;
+            }
+            // A new group starts with its name as an empty entry; a group is ended by an entry with only 20000001.
+            String cheatGroup = c.group() == null || c.group().isEmpty() ? null : c.group();
+            List<Atmosphere.Out> marks = new ArrayList<>();
+            if (!java.util.Objects.equals(cheatGroup, group)) {
+                marks.add(cheatGroup != null ? new Atmosphere.Out(cheatGroup, false, Collections.<String>emptyList())
+                        : new Atmosphere.Out(group, false, Collections.singletonList("20000001")));
+            }
+            if (entries.size() + marks.size() + 1 > ATM_ENTRIES) {
+                skipped.put(c.id(), "more entries than an Atmosph\u00E8re file holds");
+                reasons.put(c.id(), "atmosphere:too-many");
+                continue;
+            }
+            entries.addAll(marks);
+            group = cheatGroup;
+            entries.add(new Atmosphere.Out(c.name(), false, lines));
             written.put(c.id(), how);
+        }
+        if (master != null) {
+            entries.add(0, new Atmosphere.Out(master, true, masterLines));
         }
         String name = mainId.substring(0, Math.min(16, mainId.length())).toUpperCase(Locale.ROOT) + ".txt";
         return new Export(name, Atmosphere.writeFile(entries), written, skipped, reasons);
@@ -1482,6 +1574,17 @@ public final class Converter {
      * With the module, the bytes a patch or stub writes over must be expect, or data already:
      * Atmosphère code writes without looking. Not where the module's bytes are not its own.
      */
+    /**
+     * With the module, a place in main lies inside it with every byte read or written there: for a
+     * pointer path, the pointer at its base.
+     */
+    private static void checkInside(CodeModule module, Atmosphere.Place place, long length) throws Atmosphere.Unclear {
+        if (module != null && place.region.equals("main")
+                && place.offset + (place.hasPath() ? 8 : length) > module.image().length) {
+            throw new Atmosphere.Unclear("a place past the end of the module", "outside");
+        }
+    }
+
     private static void checkModule(CodeModule module, Atmosphere.Place place, byte[] expect, byte[] data)
             throws Atmosphere.Unclear {
         if (module == null || place.hasPath() || !place.region.equals("main")) {
@@ -1514,6 +1617,7 @@ public final class Converter {
             if (op instanceof Model.Patch) {
                 Model.Patch p = (Model.Patch) op;
                 Atmosphere.Place place = place(p.at, buildKey, module);
+                checkInside(module, place, p.expect.length);
                 byte[] data;
                 if (p.encode != null) {
                     data = Encode.arm64Imm(p.encode.insn, p.encode.width, p.encode.rd,
@@ -1530,6 +1634,8 @@ public final class Converter {
             } else if (op instanceof Model.Write) {
                 Model.Write w = (Model.Write) op;
                 Atmosphere.Place place = place(w.at, buildKey, module);
+                checkInside(module, place,
+                        w.type.equals("bytes") ? ((byte[]) w.value).length : Values.typeSize(w.type));
                 Object v = defaultOf(c, w.value, chosen);
                 if (v instanceof Boolean) {
                     v = ((Boolean) v) ? 1L : 0L;
@@ -1556,6 +1662,7 @@ public final class Converter {
                     throw new Atmosphere.Unclear("an override whose stub is longer than expect", "atmosphere:override");
                 }
                 Atmosphere.Place place = place(o.function, buildKey, module);
+                checkInside(module, place, stub.length);
                 checkModule(module, place, Arrays.copyOf(o.expect, stub.length), stub);
                 stores.addAll(stores(place, stub));
                 restores.addAll(stores(place, Arrays.copyOf(o.expect, stub.length)));
@@ -1576,6 +1683,8 @@ public final class Converter {
         if (!conds.isEmpty()) {
             Model.Condition cond = conds.get(0);
             Atmosphere.Place place = place(cond.at, buildKey, module);
+            checkInside(module, place, Arrays.asList("u8", "u16", "u32", "u64").contains(cond.type)
+                    ? Values.typeSize(cond.type) : 1);
             Object value = defaultOf(c, cond.value, chosen);
             if (place.hasPath() || !Arrays.asList("u8", "u16", "u32", "u64").contains(cond.type)
                     || !Atmosphere.isConditionOp(cond.op) || !Values.isInt(value)) {
