@@ -122,7 +122,9 @@ class CliTest(unittest.TestCase):
             code, out = self.run_cli('check', str(mncf_path), '--module', str(changed))
             self.assertEqual(code, 1, out)
             self.assertIn('fail master-setup: expect-mismatch', out)
-            self.assertIn('fail money: requires:master-setup', out)
+            # Only the cheat that stays raw code depends on the master; money keeps its pattern and works.
+            self.assertIn('fail loop: requires:master-setup', out)
+            self.assertNotIn('fail money', out)
             code, out = self.run_cli('convert', str(mncf_path), '--build', '1.0.0', '-o', str(d / 'back.txt'))
             self.assertEqual(code, 0, out)
             same, differ, missing = convert.compare(syn.CHEATS, (d / 'back.txt').read_text(encoding='utf-8'))
