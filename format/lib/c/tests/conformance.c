@@ -1579,7 +1579,7 @@ static uint8_t *make_zip(const char **names, const uint8_t **datas, const size_t
 
 static jv *pack_results(const mncf_toml *c, const char *folder)
 {
-    const mncf_toml *z = mncf_toml_get(c, "zip"), *text = mncf_toml_get(z, "text");
+    const mncf_toml *z = mncf_toml_get(c, "zip"), *text = mncf_toml_get(z, "text"), *hex = mncf_toml_get(z, "hex");
     const uint8_t *data;
     size_t size, i;
     mncf_trust *trust = trust_list(c);
@@ -1589,6 +1589,10 @@ static jv *pack_results(const mncf_toml *c, const char *folder)
     jv *out, *files;
     if (text != NULL) {
         data = (const uint8_t *)tstr(text, &size);
+    } else if (hex != NULL) {
+        size_t n;
+        const char *s = tstr(hex, &n);
+        data = from_hex(s != NULL ? s : "", s != NULL ? n : 0, &size);       /* the exact bytes of a pack */
     } else {
         size_t n = mncf_toml_count(z);
         const char **names = (const char **)xalloc((n + 1) * sizeof *names);
