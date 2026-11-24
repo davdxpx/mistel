@@ -919,6 +919,67 @@ static void test_sections(void)
     mncf_free(f);
 }
 
+/* Parts of the core a runtime does not have yet, and code it rewrote (sections 11.1 and 11.3). */
+static void test_runtime_gaps(void)
+{
+    static const char text[] =
+        "format = \"mncf/1\"\nname = \"T\"\n\n[game]\nplatform = \"switch\"\nid = \"0100000000ABC000\"\n\n"
+        "[[cheat]]\nid = \"timed-toggle\"\nname = \"t\"\nrun = \"timed\"\nduration = 5\ntoggle = \"L\"\n"
+        "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x0 }\n  type = \"u8\"\n  value = 1\n\n"
+        "[[cheat]]\nid = \"interval-alone\"\nname = \"i\"\ninterval = 2\n"
+        "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x0 }\n  type = \"u8\"\n  value = 1\n\n"
+        "[[cheat]]\nid = \"interval-when\"\nname = \"w\"\ninterval = 2\n"
+        "  [[cheat.when]]\n  at = { region = \"heap\", offset = 0x10 }\n  type = \"u8\"\n  op = \"changed\"\n"
+        "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x0 }\n  type = \"u8\"\n  value = 1\n\n"
+        "[[cheat]]\nid = \"over-rewritten\"\nname = \"r\"\n"
+        "  [[cheat.patch]]\n  at = { module = \"main\", offset = 0x100 }\n  expect = \"68 12 00 B9\"\n"
+        "  bytes = \"69 12 00 B9\"\n\n"
+        "[[cheat]]\nid = \"elsewhere\"\nname = \"e\"\n"
+        "  [[cheat.patch]]\n  at = { module = \"main\", offset = 0x200 }\n  expect = \"00 00 00 00\"\n"
+        "  bytes = \"01 00 00 00\"\n\n"
+        "[[cheat]]\nid = \"stub-over-rewritten\"\nname = \"s\"\n"
+        "  [[cheat.override]]\n  function = { module = \"main\", offset = 0x100 }\n  action = \"skip\"\n"
+        "  expect = \"68 12 00 B9\"\n";
+    static const char *const unsupported[] = {"toggle", "interval"};
+    mncf_rewritten runs[3];
+    mncf_error err;
+    world w;
+    mncf_file *f;
+    mncf_evaluation *ev;
+    world_init(&w);
+    runs[0].module = "main";
+    runs[0].offset = 0x102;
+    runs[0].length = 4;
+    runs[1].module = "main";             /* runs near 2^64 overlap nothing below them */
+    runs[1].offset = UINT64_MAX - 0x10;
+    runs[1].length = 0x100;
+    runs[2].module = "sdk";
+    runs[2].offset = 0x200;
+    runs[2].length = 4;
+    w.rt.unsupported = unsupported;
+    w.rt.unsupported_count = 2;
+    w.rt.rewritten = runs;
+    w.rt.rewritten_count = 3;
+    f = mncf_load(text, strlen(text), NULL, NULL, &err);
+    CHECK(f != NULL);
+    if (f == NULL) {
+        printf("  %s: %s\n", err.code, err.message);
+        return;
+    }
+    ev = mncf_evaluate(f, &w.rt, NULL, &err);
+    CHECK(ev != NULL);
+    if (ev != NULL) {
+        CHECK(strcmp(mncf_evaluation_cheat(ev, 0)->reason, "runtime:unsupported:toggle") == 0);
+        CHECK(strcmp(mncf_evaluation_cheat(ev, 1)->reason, "") == 0);   /* interval counts with conditions */
+        CHECK(strcmp(mncf_evaluation_cheat(ev, 2)->reason, "runtime:unsupported:interval") == 0);
+        CHECK(strcmp(mncf_evaluation_cheat(ev, 3)->reason, "runtime:rewritten") == 0);
+        CHECK(mncf_evaluation_cheat(ev, 4)->state == MNCF_STATE_OFF && strcmp(mncf_evaluation_cheat(ev, 4)->reason, "") == 0);
+        CHECK(strcmp(mncf_evaluation_cheat(ev, 5)->reason, "runtime:rewritten") == 0);
+    }
+    mncf_evaluation_free(ev);
+    mncf_free(f);
+}
+
 /* ---- Every allocation failing in turn --------------------------------------------------------------- */
 
 /* An allocator that fails at one allocation and checks that every free gives the size it was given. */
@@ -1136,6 +1197,7 @@ int main(int argc, char **argv)
     RUN(test_signatures);
     RUN(test_api);
     RUN(test_sections);
+    RUN(test_runtime_gaps);
     RUN(test_allocation_failures);
     if (argc > 1) {
         test_suite_files(argv[1]);

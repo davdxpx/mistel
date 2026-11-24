@@ -1075,6 +1075,31 @@ static void runtime(const mncf_toml *env, memory *m, mncf_runtime *rt)
     if ((v = mncf_toml_get(env, "held")) != NULL) {
         rt->held = string_list(v, &rt->held_count);
     }
+    if ((v = mncf_toml_get(env, "unsupported")) != NULL) {
+        rt->unsupported = string_list(v, &rt->unsupported_count);
+    }
+    if ((v = mncf_toml_get(env, "rewritten")) != NULL) {
+        size_t total = 0, n = 0;
+        mncf_rewritten *runs;
+        for (i = 0; i < mncf_toml_count(v); i++) {
+            total += mncf_toml_count(mncf_toml_at(v, i));
+        }
+        runs = (mncf_rewritten *)xalloc((total + 1) * sizeof *runs);
+        for (i = 0; i < mncf_toml_count(v); i++) {
+            size_t kn;
+            const char *key = mncf_toml_key(v, i, &kn);
+            const mncf_toml *list = mncf_toml_at(v, i);
+            for (k = 0; k < mncf_toml_count(list); k++) {
+                const mncf_toml *pair = mncf_toml_at(list, k);
+                runs[n].module = xstrndup(key, kn);
+                runs[n].offset = tuint(mncf_toml_at(pair, 0), 0);
+                runs[n].length = tuint(mncf_toml_at(pair, 1), 0);
+                n++;
+            }
+        }
+        rt->rewritten = runs;
+        rt->rewritten_count = n;
+    }
 }
 
 /* A value of a case for a player value: whole numbers, floats and booleans as they are, anything else

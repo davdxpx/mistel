@@ -637,6 +637,66 @@ static const char *check_expect(mn_eval *ev, const mn_place *place, const uint8_
     return reason;
 }
 
+/* Whether a < b + len, exactly. */
+static int below_sum(uint64_t a, uint64_t b, uint64_t len)
+{
+    return len > UINT64_MAX - b || a < b + len;
+}
+
+/* Refuses a patch or a stub over code the runtime rewrote for its own reasons (section 11.3). */
+static const char *check_rewritten(const mn_eval *ev, const mn_place *place, size_t length)
+{
+    size_t i;
+    if (place->module == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < ev->rt.rewritten_count; i++) {
+        const mncf_rewritten *r = &ev->rt.rewritten[i];
+        if (r->module != NULL && strcmp(r->module, place->module_name) == 0 &&
+            below_sum(r->offset, place->offset, length) && below_sum(place->offset, r->offset, r->length)) {
+            return "runtime:rewritten";
+        }
+    }
+    return NULL;
+}
+
+/* The first part of the core in the spec's order that the cheat uses and the runtime does not have yet
+ * (section 11.1), as a reason, or NULL. */
+static const char *unsupported_part(mn_eval *ev, const mn_cheat *c)
+{
+    static const char *const FEATURES[] = {"run.once", "run.action", "run.timed", "run.monitor", "hold",
+                                           "toggle", "press", "when", "when.many", "match.any",
+                                           "trigger.enter", "interval", "override"};
+    size_t conditions = 0, overrides = 0, i;
+    int used[13];
+    if (ev->rt.unsupported_count == 0) {
+        return NULL;
+    }
+    for (i = 0; i < c->op_count; i++) {
+        conditions += c->ops[i].kind == MNCF_OP_WHEN;
+        overrides += c->ops[i].kind == MNCF_OP_OVERRIDE;
+    }
+    used[0] = c->pub.run == MNCF_RUN_ONCE;
+    used[1] = c->pub.run == MNCF_RUN_ACTION;
+    used[2] = c->pub.run == MNCF_RUN_TIMED;
+    used[3] = c->pub.run == MNCF_RUN_MONITOR;
+    used[4] = c->pub.hold != NULL;
+    used[5] = c->pub.toggle != NULL;
+    used[6] = c->pub.press != NULL;
+    used[7] = conditions > 0;
+    used[8] = conditions > 1;
+    used[9] = c->pub.match_any && conditions > 0;
+    used[10] = c->pub.trigger_enter && conditions > 0;
+    used[11] = c->pub.interval != 1 && conditions > 0;
+    used[12] = overrides > 0;
+    for (i = 0; i < 13; i++) {
+        if (used[i] && has_name(ev->rt.unsupported, ev->rt.unsupported_count, FEATURES[i])) {
+            return mn_intern(ev, "runtime:unsupported:", FEATURES[i]);
+        }
+    }
+    return NULL;
+}
+
 /* ---- Plans ------------------------------------------------------------------------------------------ */
 
 static int by_bytes(const mn_eval *ev, const mn_op *op)
@@ -676,7 +736,10 @@ static const char *plan_op(mn_eval *ev, const mn_cheat *c, const mn_op *op, mn_p
         p->expect = op->expect;
         p->expect_len = op->expect_len;
         if (op->at.path_len == 0) {
-            reason = check_expect(ev, &p->targets[0].base, op->expect, op->expect_len, p->data);
+            reason = check_rewritten(ev, &p->targets[0].base, op->expect_len);
+            if (reason == NULL) {
+                reason = check_expect(ev, &p->targets[0].base, op->expect, op->expect_len, p->data);
+            }
             if (reason != NULL) {
                 return reason;
             }
@@ -749,7 +812,10 @@ static const char *plan_op(mn_eval *ev, const mn_cheat *c, const mn_op *op, mn_p
                 return op->value_kind == VAL_REF ? "value-out-of-range" : "invalid:override.expect";
             }
             if (op->at.path_len == 0) {
-                reason = check_expect(ev, &p->targets[0].base, op->expect, op->expect_len, NULL);
+                reason = check_rewritten(ev, &p->targets[0].base, stub_len);
+                if (reason == NULL) {
+                    reason = check_expect(ev, &p->targets[0].base, op->expect, op->expect_len, NULL);
+                }
                 if (reason != NULL) {
                     return reason;
                 }
@@ -944,6 +1010,10 @@ mn_result *mn_own(mn_eval *ev, size_t index)
     }
     if (c->pub.problem != NULL) {
         return mn_refused(ev, c->pub.problem);
+    }
+    reason = unsupported_part(ev, c);
+    if (reason != NULL) {
+        return mn_refused(ev, reason);
     }
     for (i = 0; i < c->op_count; i++) {
         const mn_op *op = &c->ops[i];

@@ -375,6 +375,14 @@ enum {
     MNCF_CAP_ALL = (1 << 6) - 1
 };
 
+/* A run of a module's code that the runtime changed itself, such as a rewriter does: its offset and
+ * length in bytes. */
+typedef struct mncf_rewritten {
+    const char *module;
+    uint64_t offset;
+    uint64_t length;
+} mncf_rewritten;
+
 /* What the runtime that applies a file has and knows (section 11). mncf_runtime_init fills in the
  * defaults: every capability, the extensions raw/1 and arm64-imm/1, the raw syntax atmosphere. Arrays
  * are the caller's and must stay valid while an engine made from this runtime lives. */
@@ -396,6 +404,16 @@ typedef struct mncf_runtime {
     const char *build;              /* a build key the runtime names itself, as a recompilation does */
     const char *const *held;        /* buttons held when the file is loaded */
     size_t held_count;
+    /* The parts of the core the runtime does not have yet (section 11.1), out of "run.once", "run.action",
+     * "run.timed", "run.monitor", "hold", "toggle", "press", "when", "when.many", "match.any",
+     * "trigger.enter", "interval" and "override". A cheat that uses one is refused with
+     * runtime:unsupported:<part>. */
+    const char *const *unsupported;
+    size_t unsupported_count;
+    /* Runs of code the runtime rewrote for its own reasons (section 11.3). A patch or a stub over one is
+     * refused with runtime:rewritten. */
+    const mncf_rewritten *rewritten;
+    size_t rewritten_count;
 } mncf_runtime;
 
 MNCF_API void mncf_runtime_init(mncf_runtime *rt, const char *platform);
