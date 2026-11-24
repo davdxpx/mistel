@@ -1,0 +1,1145 @@
+/* unit.c: unit tests of the C library: hashes, Ed25519, base64, CRC-32, inflate and ZIP, the TOML
+ * parser, numbers, machine code, trust lists, signatures, packs, the API's errors, and every allocation
+ * failing in turn. The conformance runner tests the rest against the suite. MIT License.
+ *
+ *     mncf_unit [<format/tests folder>]
+ */
+#include "encode.h"
+#include "model.h"
+#include "zip.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static int checks, failures;
+
+#define CHECK(cond)                                                                                              \
+    do {                                                                                                         \
+        checks++;                                                                                                \
+        if (!(cond)) {                                                                                           \
+            failures++;                                                                                          \
+            printf("%s:%d: check failed: %s\n", __FILE__, __LINE__, #cond);                                      \
+        }                                                                                                        \
+    } while (0)
+
+static size_t unhex(const char *s, uint8_t *out, size_t cap)
+{
+    size_t n = 0;
+    while (s[0] != 0 && s[1] != 0 && n < cap) {
+        out[n++] = (uint8_t)(mn_hex_value((unsigned char)s[0]) << 4 | mn_hex_value((unsigned char)s[1]));
+        s += 2;
+    }
+    return n;
+}
+
+static int hex_is(const uint8_t *p, size_t n, const char *hex)
+{
+    static const char H[] = "0123456789abcdef";
+    size_t i;
+    if (strlen(hex) != 2 * n) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        if (hex[2 * i] != H[p[i] >> 4] || hex[2 * i + 1] != H[p[i] & 15]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* ---- Hashes, base64, CRC-32 ------------------------------------------------------------------------- */
+
+static void test_sha256(void)
+{
+    uint8_t h[32];
+    mn_sha256 s;
+    size_t i;
+    static char million[1000];
+    mncf_sha256("", 0, h);
+    CHECK(hex_is(h, 32, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+    mncf_sha256("abc", 3, h);
+    CHECK(hex_is(h, 32, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+    mncf_sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", 56, h);
+    CHECK(hex_is(h, 32, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"));
+    memset(million, 'a', sizeof million);
+    mn_sha256_init(&s);
+    for (i = 0; i < 1000; i++) {
+        mn_sha256_update(&s, million, i % 2 == 0 ? 1000 : 0);
+        mn_sha256_update(&s, million, i % 2 == 0 ? 0 : 1000);
+    }
+    mn_sha256_final(&s, h);
+    CHECK(hex_is(h, 32, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"));
+}
+
+static void test_sha512(void)
+{
+    uint8_t h[64];
+    mn_sha512 s;
+    const char *msg = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
+    size_t i;
+    mncf_sha512("", 0, h);
+    CHECK(hex_is(h, 64, "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"));
+    mncf_sha512("abc", 3, h);
+    CHECK(hex_is(h, 64, "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"));
+    mn_sha512_init(&s);
+    for (i = 0; i < strlen(msg); i++) {
+        mn_sha512_update(&s, msg + i, 1);
+    }
+    mn_sha512_final(&s, h);
+    CHECK(hex_is(h, 64, "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909"));
+}
+
+static void test_base64_crc(void)
+{
+    uint8_t raw[64];
+    char text[96];
+    CHECK(mn_base64_encode((const uint8_t *)"foob", 4, text) == 8 && strcmp(text, "Zm9vYg==") == 0);
+    CHECK(mn_base64_encode((const uint8_t *)"fooba", 5, text) == 8 && strcmp(text, "Zm9vYmE=") == 0);
+    CHECK(mn_base64_encode((const uint8_t *)"foobar", 6, text) == 8 && strcmp(text, "Zm9vYmFy") == 0);
+    CHECK(mn_base64_decode("Zm9vYmFy", 8, raw, sizeof raw) == 6 && memcmp(raw, "foobar", 6) == 0);
+    CHECK(mn_base64_decode("Zm9vYg==", 8, raw, sizeof raw) == 4 && memcmp(raw, "foob", 4) == 0);
+    CHECK(mn_base64_decode("Zm9vYg=", 7, raw, sizeof raw) == -1);
+    CHECK(mn_base64_decode("Zm=vYg==", 8, raw, sizeof raw) == -1);
+    CHECK(mn_base64_decode("Zm9v*g==", 8, raw, sizeof raw) == -1);
+    CHECK(mn_crc32(0, "123456789", 9) == 0xCBF43926u);
+    CHECK(mn_crc32(mn_crc32(0, "1234", 4), "56789", 5) == 0xCBF43926u);
+}
+
+/* ---- Ed25519 ---------------------------------------------------------------------------------------- */
+
+static const char *const RFC8032[][3] = {
+    {"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+     "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"},
+    {"3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+     "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"},
+    {"fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82",
+     "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"},
+    {"ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+     "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+     "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704"},
+};
+
+static void test_ed25519(void)
+{
+    uint8_t pub[32], msg[64], sig[64], bad[64], key[32];
+    size_t i, n;
+    char kid[17];
+    for (i = 0; i < 4; i++) {
+        unhex(RFC8032[i][0], pub, 32);
+        n = unhex(RFC8032[i][1], msg, sizeof msg);
+        unhex(RFC8032[i][2], sig, 64);
+        CHECK(mncf_ed25519_verify(pub, msg, n, sig));
+    }
+    unhex(RFC8032[1][0], pub, 32);
+    n = unhex(RFC8032[1][1], msg, sizeof msg);
+    unhex(RFC8032[1][2], sig, 64);
+    msg[n] = 0;
+    CHECK(!mncf_ed25519_verify(pub, msg, n + 1, sig));       /* a longer message */
+    memcpy(bad, sig, 64);
+    bad[63] ^= 1;
+    CHECK(!mncf_ed25519_verify(pub, msg, n, bad));           /* a changed S */
+    memcpy(bad, sig, 64);
+    bad[5] ^= 0x10;
+    CHECK(!mncf_ed25519_verify(pub, msg, n, bad));           /* a changed R */
+    /* S + L: [S + L]B = [S]B, but S must be below L */
+    unhex(RFC8032[0][0], pub, 32);
+    unhex(RFC8032[0][2], sig, 64);
+    {
+        static const uint8_t L[32] = {0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7,
+                                      0xa2, 0xde, 0xf9, 0xde, 0x14, 0,    0,    0,    0,    0,    0,
+                                      0,    0,    0,    0,    0,    0,    0,    0,    0,    0x10};
+        int carry = 0;
+        memcpy(bad, sig, 64);
+        for (i = 0; i < 32; i++) {
+            int v = bad[32 + i] + L[i] + carry;
+            bad[32 + i] = (uint8_t)v;
+            carry = v >> 8;
+        }
+        CHECK(!mncf_ed25519_verify(pub, NULL, 0, bad));
+    }
+    /* y = p + 1 encodes y = 1, a point on the curve, but not canonically */
+    memset(key, 0xff, 32);
+    key[0] = 0xee;
+    key[31] = 0x7f;
+    CHECK(!mncf_ed25519_verify(key, NULL, 0, sig));
+    memcpy(bad, key, 32);
+    memcpy(bad + 32, sig + 32, 32);
+    CHECK(!mncf_ed25519_verify(pub, NULL, 0, bad));
+    /* y = 2 is not on the curve; x = 0 with the sign bit set is no encoding */
+    memset(key, 0, 32);
+    key[0] = 2;
+    CHECK(!mncf_ed25519_verify(key, NULL, 0, sig));
+    memset(key, 0, 32);
+    key[0] = 1;
+    key[31] = 0x80;
+    CHECK(!mncf_ed25519_verify(key, NULL, 0, sig));
+    CHECK(mncf_ed25519_verify(pub, NULL, 0, sig));
+    mncf_key_id(pub, kid);
+    CHECK(strcmp(kid, "21fe31dfa154a261") == 0);
+}
+
+/* ---- Inflate and ZIP -------------------------------------------------------------------------------- */
+
+static const char DEFLATED_PACK[] =
+    "504b03041400000008009405785d0a4524607300000088000000090000007061636b2e746f6d6c15ca310ec2300c40d1dda7"
+    "a8b2034d489c78e00eec550727b15504692be8fd45b3fce1e9ebf66d7c0c8fc1b4b5e865e7f2be59032b37e9f83400d3a4af"
+    "8fcc33ec7c2c1df9da5f03bf855dc02e91ee59c90ac53c4a450a78566ccc4949903072e4e47c2dc98dd54b4867ad86488ed0"
+    "574d06fe504b03041400000008009405785d34e392e398000000d600000006000000612e6d6e6366458e4d0ac2400c46f739"
+    "4598b5e85471e942c5a527285d0c3553073a3fb453db22dedda416cc22f0f2bd84d8d87993f184ca87daee0a05c17812be4d"
+    "c6a7961440d9f0a882d49a6c5997b01f5dae9f0adc4348177aadf3e5ca5d76cafa492657d5aaf81868fe1fbfff101057713b"
+    "762e13eb88cb3b6feca8713188cc79521b8cd6f624999e0a8d1f36f39c966bc361af185fa61d848ff005504b010214001400"
+    "000008009405785d0a45246073000000880000000900000000000000000000008001000000007061636b2e746f6d6c504b01"
+    "0214001400000008009405785d34e392e398000000d600000006000000000000000000000080019a000000612e6d6e636650"
+    "4b050600000000020002006b000000560100000000";
+
+/* 400 lines of text, deflated with dynamic Huffman codes by zlib at level 9. */
+static const char DYNAMIC[] =
+    "edd54d3643411485d1be51d410d42d04b3f1f3109ebc08118cde8a1158a7bddbb54eabbe75f7bcde4cedf4ba7d3c4ded6dbf"
+    "be7b69b7bbe5b0690fcb577bdebf6edfdbf239edfe9ee79b9fef76bf3c9eccc74d0f36156c46b0390b36e7c1e622d8ac82cd"
+    "65b0b94afe340a2129a12729f4a4859ec4d0931a7a92434f7ae849103d29a292222aba0d4911951451491195145149119514"
+    "51491195143192224652c488b8488a1849112329622445e019cf78c6339ef18c673ce319cf78c6339ef18c673ce319cf78c6"
+    "339ef18c673ce319cf78c6339ef18c673ce319cf78c6339ef18c673ce319cf78c6339ef18c673ce319cf78c6339ef18c673c"
+    "e319cf78c6339ef18c673ce319cf78c6339ef18c673ce319cfff1ffd02";
+
+static const char FILE_TEXT[] = "format = \"mncf/1\"\nname = \"Example\"\n\n[game]\nplatform = \"switch\"\n"
+                                "id = \"0100000000ABC000\"\n\n[[cheat]]\nid = \"money\"\nname = \"Money\"\n\n"
+                                "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x10 }\n  type = \"u32\"\n"
+                                "  value = 5\n";
+static const char FILE_SIGNATURE[] =
+    "# mncf-signature: ed25519 21fe31dfa154a261 "
+    "TxX03pZH0h9+vg9B1Dks1hU9In9Nt9W79P0QPchoHij77i8jbmIbbZA7gXUAlMxB1xGh+b4LY9PjND4ynTBuDw==\n";
+static const char FILE_SHA256[] = "793bf91e97b0ed6956ed6e17b8f9e6967a7a824dc820d4e580d41f5792964df8";
+
+/* An entry of a test ZIP file. */
+typedef struct test_entry {
+    const char *name;
+    const uint8_t *data;
+    size_t size;
+    uint32_t method;
+    uint32_t flags;
+    uint32_t extract;
+    uint64_t claimed_size;            /* 0: the real size */
+} test_entry;
+
+static void w16(uint8_t *z, size_t *at, uint32_t v)
+{
+    z[(*at)++] = (uint8_t)(v & 0xFF);
+    z[(*at)++] = (uint8_t)((v >> 8) & 0xFF);
+}
+
+static void w32(uint8_t *z, size_t *at, uint32_t v)
+{
+    w16(z, at, v & 0xFFFF);
+    w16(z, at, v >> 16);
+}
+
+/* A ZIP file of stored or given entries, with junk bytes before it and a comment after it. */
+static uint8_t *make_zip(const test_entry *e, size_t count, size_t junk, size_t *len)
+{
+    size_t total = junk + 22 + 8, i, at = junk, cd;
+    uint8_t *z;
+    uint32_t offsets[16];
+    for (i = 0; i < count; i++) {
+        total += 30 + 46 + 2 * strlen(e[i].name) + e[i].size;
+    }
+    z = (uint8_t *)calloc(1, total);
+    memset(z, 'J', junk);
+    for (i = 0; i < count; i++) {
+        size_t n = strlen(e[i].name);
+        offsets[i] = (uint32_t)(at - junk);
+        w32(z, &at, 0x04034b50u);
+        w16(z, &at, 20);
+        w16(z, &at, e[i].flags);
+        w16(z, &at, e[i].method);
+        w32(z, &at, 0);
+        w32(z, &at, 0);
+        w32(z, &at, (uint32_t)e[i].size);
+        w32(z, &at, (uint32_t)e[i].size);
+        w16(z, &at, (uint32_t)n);
+        w16(z, &at, 0);
+        memcpy(z + at, e[i].name, n);
+        at += n;
+        if (e[i].size > 0) {
+            memcpy(z + at, e[i].data, e[i].size);
+        }
+        at += e[i].size;
+    }
+    cd = at;
+    for (i = 0; i < count; i++) {
+        size_t n = strlen(e[i].name);
+        w32(z, &at, 0x02014b50u);
+        w16(z, &at, 20);
+        w16(z, &at, e[i].extract != 0 ? e[i].extract : 20);
+        w16(z, &at, e[i].flags);
+        w16(z, &at, e[i].method);
+        w32(z, &at, 0);
+        w32(z, &at, e[i].method == 0 ? mn_crc32(0, e[i].data, e[i].size) : 0);
+        w32(z, &at, (uint32_t)e[i].size);
+        w32(z, &at, (uint32_t)(e[i].claimed_size != 0 ? e[i].claimed_size : e[i].size));
+        w16(z, &at, (uint32_t)n);
+        w16(z, &at, 0);
+        w16(z, &at, 0);
+        w16(z, &at, 0);
+        w16(z, &at, 0);
+        w32(z, &at, 0);
+        w32(z, &at, offsets[i]);
+        memcpy(z + at, e[i].name, n);
+        at += n;
+    }
+    w32(z, &at, 0x06054b50u);
+    w16(z, &at, 0);
+    w16(z, &at, 0);
+    w16(z, &at, (uint32_t)count);
+    w16(z, &at, (uint32_t)count);
+    w32(z, &at, (uint32_t)(at - 12 - cd));
+    w32(z, &at, (uint32_t)(cd - junk));
+    w16(z, &at, 8);
+    memcpy(z + at, "comment!", 8);
+    at += 8;
+    *len = at;
+    return z;
+}
+
+static void test_inflate(void)
+{
+    mn_arena ar;
+    mn_zip z;
+    mncf_error err;
+    mn_alloc a = mn_alloc_of(NULL);
+    uint8_t stream[600];
+    size_t n = unhex(DYNAMIC, stream, sizeof stream);
+    test_entry e[1];
+    uint8_t *zip, *out = NULL;
+    size_t len, out_len = 0, i;
+    char *want = (char *)malloc(30000), *w = want;
+    for (i = 0; i < 400; i++) {
+        w += sprintf(w, "line %d: the quick brown fox jumps over the lazy dog\n", (int)(i % 37));
+    }
+    e[0].name = "t";
+    e[0].data = stream;
+    e[0].size = n;
+    e[0].method = 8;
+    e[0].flags = 0;
+    e[0].extract = 0;
+    e[0].claimed_size = (uint64_t)(w - want);
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && z.count == 1);
+    /* the CRC-32 in the directory is 0, so a full read fails, and a read short of the end does not check */
+    CHECK(!mn_zip_read(&z, &z.entries[0], 1u << 20, &a, &out, &out_len, &err) && err.status == MNCF_ERR_ZIP);
+    CHECK(mn_zip_read(&z, &z.entries[0], 1000, &a, &out, &out_len, &err) && out_len == 1000 &&
+          memcmp(out, want, 1000) == 0);
+    mn_free(&a, out, out_len);
+    z.entries[0].crc = mn_crc32(0, want, (size_t)(w - want));
+    CHECK(mn_zip_read(&z, &z.entries[0], 1u << 20, &a, &out, &out_len, &err) && out_len == (size_t)(w - want) &&
+          memcmp(out, want, out_len) == 0);
+    mn_free(&a, out, out_len);
+    /* a broken stream: block type 3 (the entry's data starts after the 30 bytes of the header and its name) */
+    zip[31] = 0x07;
+    z.entries[0].crc = 0;
+    CHECK(!mn_zip_read(&z, &z.entries[0], 1u << 20, &a, &out, &out_len, &err) && err.status == MNCF_ERR_ZIP);
+    mn_arena_free(&ar);
+    free(zip);
+    free(want);
+}
+
+static void test_zip(void)
+{
+    mn_arena ar;
+    mn_zip z;
+    mncf_error err;
+    mn_alloc a = mn_alloc_of(NULL);
+    uint8_t raw[600], *zip, *out = NULL;
+    size_t n = unhex(DEFLATED_PACK, raw, sizeof raw), len, out_len = 0;
+    test_entry e[3];
+    mn_arena_init(&ar, a);
+    /* Python's zipfile wrote this one, deflated */
+    CHECK(mn_zip_open(&z, &ar, raw, n, &err) && z.count == 2);
+    CHECK(z.count == 2 && mn_streqz(z.entries[1].name.p, z.entries[1].name.n, "a.mncf"));
+    CHECK(z.count == 2 && mn_zip_read(&z, &z.entries[1], 1u << 20, &a, &out, &out_len, &err) &&
+          out_len == strlen(FILE_TEXT) && memcmp(out, FILE_TEXT, out_len) == 0);
+    mn_free(&a, out, out_len);
+    mn_arena_free(&ar);
+    /* data before the archive and a comment after it */
+    memset(e, 0, sizeof e);
+    e[0].name = "a";
+    e[0].data = (const uint8_t *)"hello";
+    e[0].size = 5;
+    zip = make_zip(e, 1, 100, &len);
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && z.count == 1 && z.entries[0].header_offset == 100);
+    CHECK(mn_zip_read(&z, &z.entries[0], 100, &a, &out, &out_len, &err) && out_len == 5);
+    mn_free(&a, out, out_len);
+    mn_arena_free(&ar);
+    free(zip);
+    /* not a ZIP file, or one cut off */
+    mn_arena_init(&ar, a);
+    CHECK(!mn_zip_open(&z, &ar, (const uint8_t *)"PK\x05\x06", 4, &err) && err.status == MNCF_ERR_ZIP);
+    CHECK(!mn_zip_open(&z, &ar, (const uint8_t *)"", 0, &err) && err.status == MNCF_ERR_ZIP);
+    mn_arena_free(&ar);
+    /* a version this reader does not read, encryption, another method */
+    e[0].extract = 64;
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(!mn_zip_open(&z, &ar, zip, len, &err) && err.status == MNCF_ERR_ZIP);
+    mn_arena_free(&ar);
+    free(zip);
+    e[0].extract = 0;
+    e[0].flags = 1;
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && !mn_zip_readable(&z.entries[0]));
+    CHECK(!mn_zip_read(&z, &z.entries[0], 100, &a, &out, &out_len, &err));
+    mn_arena_free(&ar);
+    free(zip);
+    e[0].flags = 0;
+    e[0].method = 12;
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && !mn_zip_readable(&z.entries[0]));
+    mn_arena_free(&ar);
+    free(zip);
+    /* a bad CRC-32, and a name in the local header that differs */
+    e[0].method = 0;
+    zip = make_zip(e, 1, 0, &len);
+    zip[30 + 1] ^= 1;               /* the data: "hfllo" */
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && !mn_zip_read(&z, &z.entries[0], 100, &a, &out, &out_len, &err));
+    mn_arena_free(&ar);
+    zip[30 + 1] ^= 1;
+    zip[30] = 'b';
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && !mn_zip_read(&z, &z.entries[0], 100, &a, &out, &out_len, &err));
+    mn_arena_free(&ar);
+    free(zip);
+    /* a UTF-8 name that is not UTF-8 */
+    e[0].name = "\xff";
+    e[0].flags = 0x800;
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(!mn_zip_open(&z, &ar, zip, len, &err) && err.status == MNCF_ERR_ZIP);
+    mn_arena_free(&ar);
+    free(zip);
+    /* a code page 437 name */
+    e[0].flags = 0;
+    e[0].name = "\x81";
+    zip = make_zip(e, 1, 0, &len);
+    mn_arena_init(&ar, a);
+    CHECK(mn_zip_open(&z, &ar, zip, len, &err) && mn_streqz(z.entries[0].name.p, z.entries[0].name.n, "\xc3\xbc"));
+    mn_arena_free(&ar);
+    free(zip);
+}
+
+/* ---- Packs ------------------------------------------------------------------------------------------ */
+
+static void test_packs(void)
+{
+    mncf_error err;
+    mncf_pack *p;
+    const mncf_pack_info *info;
+    uint8_t raw[600], *zip;
+    size_t n = unhex(DEFLATED_PACK, raw, sizeof raw), len;
+    char manifest[400];
+    test_entry e[3];
+    p = mncf_pack_read(raw, n, NULL, NULL, &err);
+    CHECK(p != NULL);
+    if (p != NULL) {
+        info = mncf_pack_info_of(p);
+        CHECK(strcmp(info->name, "P") == 0 && info->file_count == 1 && info->files[0].status == MNCF_PACK_OK &&
+              info->files[0].size == strlen(FILE_TEXT) && info->usable);
+        mncf_pack_free(p);
+    }
+    snprintf(manifest, sizeof manifest, "format = \"mncf-pack/1\"\nname = \"P\"\n\n[[file]]\npath = \"a.mncf\"\nsha256 = \"%s\"\n",
+             FILE_SHA256);
+    memset(e, 0, sizeof e);
+    e[0].name = "pack.toml";
+    e[0].data = (const uint8_t *)manifest;
+    e[0].size = strlen(manifest);
+    e[1].name = "a.mncf";
+    e[1].data = (const uint8_t *)FILE_TEXT;
+    e[1].size = strlen(FILE_TEXT);
+    e[2].name = "dir/";
+    zip = make_zip(e, 3, 0, &len);
+    p = mncf_pack_read(zip, len, NULL, NULL, &err);
+    CHECK(p != NULL && mncf_pack_info_of(p)->files[0].status == MNCF_PACK_OK);
+    mncf_pack_free(p);
+    /* the bytes a reader reads from one pack are limited */
+    p = mn_pack_read(zip, len, NULL, NULL, e[0].size + e[1].size - 1, &err);
+    CHECK(p == NULL && err.status == MNCF_ERR_SIZE && strcmp(err.code, "size") == 0);
+    p = mn_pack_read(zip, len, NULL, NULL, e[0].size + e[1].size, &err);
+    CHECK(p != NULL);
+    mncf_pack_free(p);
+    free(zip);
+    /* an entry that says it has more than 16 MiB */
+    e[1].claimed_size = (uint64_t)MNCF_MAX_FILE + 1;
+    zip = make_zip(e, 2, 0, &len);
+    p = mncf_pack_read(zip, len, NULL, NULL, &err);
+    CHECK(p == NULL && err.status == MNCF_ERR_SIZE);
+    free(zip);
+    e[1].claimed_size = 0;
+    /* two entries of the same name */
+    e[1].name = "pack.toml";
+    zip = make_zip(e, 2, 0, &len);
+    p = mncf_pack_read(zip, len, NULL, NULL, &err);
+    CHECK(p == NULL && strcmp(err.code, "zip") == 0);
+    free(zip);
+    /* a manifest with CR line ends */
+    e[0].data = (const uint8_t *)"format = \"mncf-pack/1\"\r\nname = \"P\"\r\n";
+    e[0].size = strlen((const char *)e[0].data);
+    zip = make_zip(e, 1, 0, &len);
+    p = mncf_pack_read(zip, len, NULL, NULL, &err);
+    CHECK(p == NULL && strcmp(err.code, "manifest") == 0);
+    free(zip);
+    CHECK(mncf_pack_read(NULL, 4, NULL, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+}
+
+/* ---- TOML ------------------------------------------------------------------------------------------- */
+
+static int toml_ok(const char *text)
+{
+    mncf_error err;
+    mncf_toml_doc *d = mncf_toml_parse(text, strlen(text), NULL, &err);
+    mncf_toml_free(d);
+    return d != NULL;
+}
+
+static void test_toml(void)
+{
+    mncf_error err;
+    mncf_toml_doc *d;
+    const mncf_toml *r, *v;
+    size_t n;
+    const char *s;
+    const char *doc = "a.b.c = 1\n\"quoted key\" = 'lit'\n[t]\nx = { y = [1, 2.5, \"s\"], z = true }\n"
+                      "[[arr]]\nk = 0x1F\n[[arr]]\nk = 0o17\nm = \"\"\"\nline\\\n   joined \\u00e9\\U0001F600\"\"\"\n"
+                      "big = 9_223_372_036_854_775_807\nneg = -9223372036854775808\nb = 0b101\n"
+                      "f = [inf, -inf, nan, 1e3, -0.0]\nd = 1979-05-27T07:32:00Z\n";
+    d = mncf_toml_parse(doc, strlen(doc), NULL, &err);
+    CHECK(d != NULL);
+    if (d == NULL) {
+        printf("  %s\n", err.message);
+        return;
+    }
+    r = mncf_toml_root(d);
+    CHECK(mncf_toml_count(r) == 4);
+    v = mncf_toml_get(mncf_toml_get(mncf_toml_get(r, "a"), "b"), "c");
+    CHECK(mncf_toml_type_of(v) == MNCF_TOML_INTEGER && mncf_toml_integer(v) == 1);
+    s = mncf_toml_string(mncf_toml_get(r, "quoted key"), &n);
+    CHECK(s != NULL && n == 3 && memcmp(s, "lit", 3) == 0);
+    v = mncf_toml_get(mncf_toml_get(mncf_toml_get(r, "t"), "x"), "y");
+    CHECK(mncf_toml_count(v) == 3 && mncf_toml_float(mncf_toml_at(v, 1)) == 2.5);
+    v = mncf_toml_get(r, "arr");
+    CHECK(mncf_toml_count(v) == 2 && mncf_toml_integer(mncf_toml_get(mncf_toml_at(v, 0), "k")) == 31 &&
+          mncf_toml_integer(mncf_toml_get(mncf_toml_at(v, 1), "k")) == 15);
+    v = mncf_toml_at(v, 1);
+    s = mncf_toml_string(mncf_toml_get(v, "m"), &n);
+    CHECK(s != NULL && n == 4 + 6 + 2 + 4 + 1 && memcmp(s, "linejoined \xc3\xa9\xf0\x9f\x98\x80", n) == 0);
+    CHECK(mncf_toml_integer(mncf_toml_get(v, "big")) == INT64_MAX);
+    CHECK(mncf_toml_integer(mncf_toml_get(v, "neg")) == INT64_MIN);
+    CHECK(mncf_toml_integer(mncf_toml_get(v, "b")) == 5);
+    {
+        const mncf_toml *f = mncf_toml_get(v, "f");
+        CHECK(isinf(mncf_toml_float(mncf_toml_at(f, 0))) && mncf_toml_float(mncf_toml_at(f, 0)) > 0);
+        CHECK(isinf(mncf_toml_float(mncf_toml_at(f, 1))) && mncf_toml_float(mncf_toml_at(f, 1)) < 0);
+        CHECK(isnan(mncf_toml_float(mncf_toml_at(f, 2))));
+        CHECK(mncf_toml_float(mncf_toml_at(f, 3)) == 1000.0);
+        CHECK(signbit(mncf_toml_float(mncf_toml_at(f, 4))));
+    }
+    CHECK(mncf_toml_type_of(mncf_toml_get(v, "d")) == MNCF_TOML_DATETIME);
+    mncf_toml_free(d);
+
+    CHECK(toml_ok(""));
+    CHECK(toml_ok("# only a comment"));
+    CHECK(toml_ok("a = 1\r\nb = 2\r\n"));
+    CHECK(toml_ok("[a.b]\n[a]\nc = 1"));
+    CHECK(toml_ok("[a]\nb.c = 1\n[a.b.d]"));
+    CHECK(toml_ok("a = [\n 1, # one\n 2,\n]"));
+    CHECK(toml_ok("t = 07:32:00\nd = 1979-05-27"));
+    CHECK(!toml_ok("a = 1\na = 2"));
+    CHECK(!toml_ok("[a]\n[a]"));
+    CHECK(!toml_ok("a = {b = 1}\na.c = 2"));
+    CHECK(!toml_ok("[a]\nb.c = 1\n[a.b]"));
+    CHECK(!toml_ok("a = [1]\n[[a]]"));
+    CHECK(!toml_ok("a = 9223372036854775808"));
+    CHECK(!toml_ok("a = 0x8000000000000000"));
+    CHECK(!toml_ok("a = 01"));
+    CHECK(!toml_ok("a = 1__0"));
+    CHECK(!toml_ok("a = 1."));
+    CHECK(!toml_ok("a = \"\\q\""));
+    CHECK(!toml_ok("a = \"\\uD800\""));
+    CHECK(!toml_ok("a = \"tab\x01\""));
+    CHECK(!toml_ok("a = 1\rb = 2"));
+    CHECK(!toml_ok("a = {b = 1,}"));
+    CHECK(!toml_ok("a = 1979-02-30"));
+    CHECK(!toml_ok("a = 1 b = 2"));
+    CHECK(!toml_ok("a = \"\xff\""));
+    CHECK(!toml_ok("\xef\xbb\xbf" "a = 1"));
+    {
+        /* arrays nest at most 128 levels in the parser */
+        char deep[400];
+        int levels;
+        for (levels = 128; levels <= 129; levels++) {
+            int i, at = 0;
+            at += sprintf(deep, "a = ");
+            for (i = 0; i < levels; i++) {
+                deep[at++] = '[';
+            }
+            for (i = 0; i < levels; i++) {
+                deep[at++] = ']';
+            }
+            deep[at] = 0;
+            CHECK(toml_ok(deep) == (levels == 128));
+        }
+    }
+    {
+        /* a table with many keys, looked up through its index */
+        char *big = (char *)malloc(200000), *w = big;
+        int i;
+        for (i = 0; i < 10000; i++) {
+            w += sprintf(w, "k%d = %d\n", i, i);
+        }
+        d = mncf_toml_parse(big, (size_t)(w - big), NULL, &err);
+        CHECK(d != NULL && mncf_toml_count(mncf_toml_root(d)) == 10000 &&
+              mncf_toml_integer(mncf_toml_get(mncf_toml_root(d), "k7777")) == 7777 &&
+              mncf_toml_get(mncf_toml_root(d), "k10000") == NULL);
+        mncf_toml_free(d);
+        w += sprintf(w, "k5 = 1\n");
+        d = mncf_toml_parse(big, (size_t)(w - big), NULL, &err);
+        CHECK(d == NULL && err.status == MNCF_ERR_TOML);
+        free(big);
+    }
+}
+
+/* ---- Numbers and machine code ----------------------------------------------------------------------- */
+
+static void test_numbers(void)
+{
+    mn_num a, b;
+    uint8_t out[8];
+    a = mn_num_u64(UINT64_MAX);
+    b = mn_num_f64(18446744073709551616.0);
+    CHECK(mn_num_cmp(&a, &b) == -1);           /* 2^64 - 1 < 2^64, though both round to the same double */
+    a = mn_num_i64(9007199254740993LL);
+    b = mn_num_f64(9007199254740992.0);
+    CHECK(mn_num_cmp(&a, &b) == 1);
+    a = mn_num_i64(3);
+    b = mn_num_f64(3.5);
+    CHECK(mn_num_cmp(&a, &b) == -1);
+    b = mn_num_f64(NAN);
+    CHECK(mn_num_cmp(&a, &b) == 2);
+    a = mn_num_i64(0);
+    b = mn_num_f64(-0.0);
+    CHECK(mn_num_cmp(&a, &b) == 0);
+    a = mn_num_bool(1);
+    b = mn_num_i64(1);
+    CHECK(mn_num_eq(&a, &b));
+    a = mn_num_i64(-1);
+    CHECK(!mn_fits(MNCF_TYPE_U8, &a) && mn_fits(MNCF_TYPE_S8, &a));
+    a = mn_num_i64(-129);
+    CHECK(!mn_fits(MNCF_TYPE_S8, &a));
+    a = mn_num_f64(1e39);
+    CHECK(!mn_fits(MNCF_TYPE_F32, &a) && mn_fits(MNCF_TYPE_F64, &a));
+    a = mn_num_f64(INFINITY);
+    CHECK(mn_fits(MNCF_TYPE_F32, &a));
+    a = mn_num_f64(1.5);
+    CHECK(!mn_fits(MNCF_TYPE_U32, &a));
+    CHECK(mn_u64_to_double(9007199254740993ULL) == 9007199254740992.0);
+    CHECK(mn_u64_to_double(9007199254740995ULL) == 9007199254740996.0);
+    CHECK(mn_u64_to_double(UINT64_MAX) == 18446744073709551616.0);
+    a = mn_num_i64(-2);
+    mn_encode_value(MNCF_TYPE_S16, &a, 0, out);
+    CHECK(out[0] == 0xFE && out[1] == 0xFF);
+    mn_encode_value(MNCF_TYPE_S16, &a, 1, out);
+    CHECK(out[0] == 0xFF && out[1] == 0xFE);
+    a = mn_num_f64(1.0);
+    mn_encode_value(MNCF_TYPE_F32, &a, 0, out);
+    CHECK(out[0] == 0 && out[1] == 0 && out[2] == 0x80 && out[3] == 0x3F);
+    out[0] = 0xFE;
+    out[1] = 0xFF;
+    a = mn_decode_value(MNCF_TYPE_S16, out, 0);
+    CHECK(a.kind == MNCF_NUMBER_INT && a.negative && a.magnitude == 2);
+    a = mn_decode_value(MNCF_TYPE_U16, out, 0);
+    CHECK(!a.negative && a.magnitude == 0xFFFE);
+}
+
+static void test_encode(void)
+{
+    uint8_t out[MN_STUB_MAX];
+    mn_num v;
+    CHECK(mn_stub("arm64", 5, MNCF_ACTION_SKIP, 0, out) == 4 && hex_is(out, 4, "c0035fd6"));
+    CHECK(mn_stub("arm64", 5, MNCF_ACTION_RETURN, 1, out) == 8 && hex_is(out, 8, "200080d2c0035fd6"));
+    CHECK(mn_stub("arm64", 5, MNCF_ACTION_RETURN, (uint64_t)-1, out) == 8 && hex_is(out, 8, "00008092c0035fd6"));
+    CHECK(mn_stub("arm64", 5, MNCF_ACTION_RETURN, 0x0001000000020003ULL, out) == 16);
+    CHECK(mn_stub("arm64", 5, MNCF_ACTION_RETURN, 0x1234567890ABCDEFULL, out) == 20);
+    CHECK(mn_stub("x86-64", 6, MNCF_ACTION_SKIP, 0, out) == 1 && out[0] == 0xC3);
+    CHECK(mn_stub("x86-64", 6, MNCF_ACTION_RETURN, 7, out) == 6 && hex_is(out, 6, "b807000000c3"));
+    CHECK(mn_stub("x86-64", 6, MNCF_ACTION_RETURN, (uint64_t)-2, out) == 8 && hex_is(out, 8, "48c7c0feffffffc3"));
+    CHECK(mn_stub("x86-64", 6, MNCF_ACTION_RETURN, 0x100000000ULL, out) == 11);
+    CHECK(mn_stub("mips", 4, MNCF_ACTION_SKIP, 0, out) == 0);
+    v = mn_num_i64(5);
+    CHECK(mn_arm64_imm(MN_INSN_MOVZ, 32, 8, &v, out) == 4 && hex_is(out, 4, "a8008052"));
+    v = mn_num_i64(0x12345);
+    CHECK(mn_arm64_imm(MN_INSN_MOVZ, 32, 8, &v, out) == 0);
+    CHECK(mn_arm64_imm(MN_INSN_MOVZ_MOVK, 64, 0, &v, out) == 8 && hex_is(out, 8, "a06884d22000a0f2"));
+    v = mn_num_f64(1.0);
+    CHECK(mn_arm64_imm(MN_INSN_FMOV, 32, 0, &v, out) == 4 && hex_is(out, 4, "00102e1e"));
+    CHECK(mn_arm64_imm(MN_INSN_MOVZ, 32, 0, &v, out) == 0);      /* movz takes whole numbers only */
+    v = mn_num_f64(0.1);
+    CHECK(mn_arm64_imm(MN_INSN_FMOV, 32, 0, &v, out) == 0);
+    v = mn_num_i64(2);
+    CHECK(mn_arm64_imm(MN_INSN_FMOV, 64, 1, &v, out) == 4 && hex_is(out, 4, "0110601e"));
+}
+
+/* ---- Trust lists and signatures --------------------------------------------------------------------- */
+
+static void test_trust(void)
+{
+    mncf_error err;
+    mncf_trust *t;
+    const char *good = "format = \"mncf-keys/1\"\n[[key]]\nname = \"One\"\n"
+                       "public = \"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\"\nid = \"21fe31dfa154a261\"\n"
+                       "[[revoked]]\nid = \"39f713d0a644253f\"\n";
+    t = mncf_trust_read(good, strlen(good), NULL, &err);
+    CHECK(t != NULL && t->key_count == 1 && t->revoked_count == 1);
+    mncf_trust_free(t);
+    t = mncf_trust_read("format = \"mncf-keys/1\"\n[[key]]\nname = \"One\"\npublic = \"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURp=\"\n",
+                        strlen("format = \"mncf-keys/1\"\n[[key]]\nname = \"One\"\npublic = \"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURp=\"\n"),
+                        NULL, &err);
+    CHECK(t == NULL && strcmp(err.code, "schema:key") == 0);
+    t = mncf_trust_read("format = \"mncf-keys/1\"\n[[revoked]]\nid = \"39F713D0A644253F\"\n",
+                        strlen("format = \"mncf-keys/1\"\n[[revoked]]\nid = \"39F713D0A644253F\"\n"), NULL, &err);
+    CHECK(t == NULL && strcmp(err.code, "schema:revoked") == 0);
+    t = mncf_trust_read("name = 1\nformat = \"mncf-keys/1\"\n", 32, NULL, &err);
+    CHECK(t == NULL && strcmp(err.code, "format") == 0);
+    t = mncf_trust_read("format = \"mncf-keys/1\"\nwhen = 1979-05-27\n", 41, NULL, &err);
+    CHECK(t == NULL && strcmp(err.code, "toml") == 0);
+}
+
+static void test_signatures(void)
+{
+    char text[1024];
+    mncf_error err;
+    mncf_trust *t = mncf_trust_new(NULL);
+    uint8_t pub[32];
+    mncf_file *f;
+    unhex(RFC8032[0][0], pub, 32);
+    mncf_trust_add(t, "Test key one", pub);
+    snprintf(text, sizeof text, "%s%s", FILE_TEXT, FILE_SIGNATURE);
+    f = mncf_load(text, strlen(text), t, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_VERIFIED &&
+          mncf_file_info_of(f)->signature.signer_count == 1 &&
+          strcmp(mncf_file_info_of(f)->signature.signers[0], "Test key one") == 0 &&
+          mncf_file_info_of(f)->signature.signed_size == strlen(FILE_TEXT));
+    mncf_free(f);
+    f = mncf_load(text, strlen(text), NULL, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_UNKNOWN_KEY);
+    mncf_free(f);
+    text[30] = 'X';                     /* the name changes after signing */
+    f = mncf_load(text, strlen(text), t, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_INVALID);
+    mncf_free(f);
+    snprintf(text, sizeof text, "%s%s", FILE_TEXT, FILE_SIGNATURE);
+    mncf_trust_revoke(t, "21FE31DFA154A261");
+    f = mncf_load(text, strlen(text), t, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_REVOKED);
+    mncf_free(f);
+    /* a key after the signature line is not covered by it: the file is invalid (the key goes into the
+     * table open there, cheat.write, where it is unknown) */
+    snprintf(text, sizeof text, "%s%sname = 1\n", FILE_TEXT, FILE_SIGNATURE);
+    f = mncf_load(text, strlen(text), NULL, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_INVALID &&
+          strcmp(mncf_file_info_of(f)->cheats[0].problem, "unknown-key:write.name") == 0);
+    mncf_free(f);
+    snprintf(text, sizeof text, "%s%s# a comment\n", FILE_TEXT, FILE_SIGNATURE);
+    f = mncf_load(text, strlen(text), NULL, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_INVALID);
+    mncf_free(f);
+    mncf_trust_free(t);
+}
+
+/* ---- The API ---------------------------------------------------------------------------------------- */
+
+static const char ENGINE_TEXT[] =
+    "format = \"mncf/1\"\nname = \"T\"\n\n[game]\nplatform = \"switch\"\nid = \"0100000000ABC000\"\n\n"
+    "[builds.\"1.0.2\"]\nmodules = { main = \"A1B2C3D4E5F60718\" }\n\n"
+    "[[cheat]]\nid = \"money\"\nname = \"Money\"\ndefault = true\n"
+    "  [cheat.values.count]\n  type = \"u32\"\n  max = 1000\n  default = 100\n"
+    "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x10 }\n  type = \"u32\"\n  value = \"$count\"\n\n"
+    "[[cheat]]\nid = \"speed\"\nname = \"Speed\"\nhold = \"ZL\"\n"
+    "  [[cheat.patch]]\n  at = { module = \"main\", find = \"68 12 00 B9 ?? ?? ?? 94\" }\n"
+    "  expect = \"68 12 00 B9\"\n  bytes = \"69 12 00 B9\"\n";
+
+typedef struct world {
+    uint8_t image[0x1000];
+    uint8_t heap[0x100];
+    mncf_module module;
+    mncf_region region;
+    mncf_runtime rt;
+} world;
+
+static int world_read(void *ctx, uint64_t address, void *out, size_t size)
+{
+    world *w = (world *)ctx;
+    if (address >= 0x8000000 && address - 0x8000000 + size <= sizeof w->image) {
+        memcpy(out, w->image + (address - 0x8000000), size);
+        return 1;
+    }
+    if (address >= 0x10000000 && address - 0x10000000 + size <= sizeof w->heap) {
+        memcpy(out, w->heap + (address - 0x10000000), size);
+        return 1;
+    }
+    return 0;
+}
+
+static void world_init(world *w)
+{
+    static const uint8_t code[] = {0x68, 0x12, 0x00, 0xB9, 0x10, 0x00, 0x00, 0x94};
+    memset(w, 0, sizeof *w);
+    memcpy(w->image + 0x100, code, sizeof code);
+    w->module.name = "main";
+    w->module.id = "A1B2C3D4E5F60718";
+    w->module.base = 0x8000000;
+    w->module.data = w->image;
+    w->module.data_size = sizeof w->image;
+    w->module.size = sizeof w->image;
+    w->module.has_size = 1;
+    w->region.name = "heap";
+    w->region.base = 0x10000000;
+    w->region.size = sizeof w->heap;
+    mncf_runtime_init(&w->rt, "switch");
+    w->rt.modules = &w->module;
+    w->rt.module_count = 1;
+    w->rt.regions = &w->region;
+    w->rt.region_count = 1;
+    w->rt.read = world_read;
+    w->rt.read_ctx = w;
+}
+
+static void test_api(void)
+{
+    mncf_error err;
+    world w;
+    mncf_file *f;
+    mncf_evaluation *ev;
+    mncf_engine *eng;
+    mncf_pass pass;
+    const char *reason;
+    const char *held[] = {"ZL"};
+    int is_on = -1;
+    CHECK(strcmp(mncf_version(), MNCF_VERSION) == 0 && MNCF_VERSION_NUMBER == 10000);
+    CHECK(mncf_load(NULL, 1, NULL, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_load("", 0, NULL, NULL, &err) == NULL && strcmp(err.code, "format") == 0);
+    CHECK(mncf_load("format = \"mncf/2\"", 17, NULL, NULL, NULL) == NULL);
+    world_init(&w);
+    f = mncf_load(ENGINE_TEXT, strlen(ENGINE_TEXT), NULL, NULL, &err);
+    CHECK(f != NULL);
+    if (f == NULL) {
+        printf("  %s: %s\n", err.code, err.message);
+        return;
+    }
+    CHECK(mncf_file_cheat(f, "speed") != NULL && mncf_file_cheat(f, "slow") == NULL);
+    CHECK(mncf_file_info_of(f)->cheats[0].value_count == 1 && mncf_file_info_of(f)->build_count == 1);
+    ev = mncf_evaluate(f, &w.rt, NULL, &err);
+    CHECK(ev != NULL && strcmp(mncf_evaluation_build(ev), "1.0.2") == 0 && mncf_evaluation_count(ev) == 2);
+    CHECK(ev != NULL && mncf_evaluation_cheat(ev, 0)->state == MNCF_STATE_ON &&
+          mncf_evaluation_cheat(ev, 1)->state == MNCF_STATE_OFF && mncf_evaluation_cheat(ev, 2) == NULL);
+    CHECK(ev != NULL && mncf_evaluation_cheat(ev, 1)->ops[0].address == 0x8000100);
+    mncf_evaluation_free(ev);
+    CHECK(mncf_engine_new(f, &w.rt, NULL, 0, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    eng = mncf_engine_new(f, &w.rt, NULL, 60, &err);
+    CHECK(eng != NULL);
+    if (eng == NULL) {
+        mncf_free(f);
+        return;
+    }
+    CHECK(mncf_engine_switch(eng, "nothing", 1, NULL) == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_engine_set_value(eng, "money.nothing", mncf_number_int(1)) == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_engine_set_value(eng, "money", mncf_number_int(1)) == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_engine_tick(eng, NULL, NULL, NULL, &pass) == MNCF_OK && pass.number == 1 && pass.change_count == 1 &&
+          pass.changes[0].kind == MNCF_CHANGE_WRITE && pass.changes[0].address == 0x10000010 &&
+          pass.changes[0].size == 4 && pass.changes[0].bytes[0] == 100);
+    CHECK(mncf_engine_set_value(eng, "money.count", mncf_number_int(5000)) == MNCF_OK);
+    CHECK(mncf_engine_state(eng, 0, &reason) == MNCF_STATE_REFUSED && strcmp(reason, "value-out-of-range") == 0);
+    CHECK(mncf_engine_set_value(eng, "money.count", mncf_number_int(7)) == MNCF_OK);
+    CHECK(mncf_engine_state(eng, 0, &reason) == MNCF_STATE_OFF);
+    CHECK(mncf_engine_switch(eng, "money", 1, &is_on) == MNCF_OK && is_on == 1);
+    CHECK(mncf_engine_switch(eng, "speed", 1, &is_on) == MNCF_OK && is_on == 1);
+    CHECK(mncf_engine_state(eng, 1, &reason) == MNCF_STATE_WAITING);
+    CHECK(mncf_engine_hold(eng, held, 1) == MNCF_OK);
+    CHECK(mncf_engine_tick(eng, NULL, NULL, NULL, &pass) == MNCF_OK && pass.change_count == 2 &&
+          pass.changes[0].kind == MNCF_CHANGE_PATCH && pass.changes[0].address == 0x8000100 &&
+          pass.changes[1].kind == MNCF_CHANGE_WRITE && pass.changes[1].bytes[0] == 7);
+    w.image[0x100] = 0x69;              /* the runtime made the patch */
+    CHECK(mncf_engine_hold(eng, NULL, 0) == MNCF_OK);
+    CHECK(mncf_engine_tick(eng, NULL, NULL, NULL, &pass) == MNCF_OK && pass.change_count == 2 &&
+          pass.changes[0].kind == MNCF_CHANGE_RESTORE && pass.changes[0].bytes[0] == 0x68);
+    CHECK(mncf_engine_stop(eng, &pass) == MNCF_OK && pass.change_count == 0);
+    CHECK(mncf_engine_state(eng, 0, &reason) == MNCF_STATE_OFF);
+    CHECK(mncf_engine_tick(NULL, NULL, NULL, NULL, &pass) == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_engine_state(eng, 99, &reason) == MNCF_STATE_OFF && strcmp(reason, "") == 0);
+    CHECK(strcmp(mncf_engine_build(eng), "1.0.2") == 0);
+    mncf_engine_free(eng);
+    mncf_free(f);
+    CHECK(strcmp(mncf_type_name(MNCF_TYPE_F32), "f32") == 0 && strcmp(mncf_signature_name(MNCF_SIGNATURE_REVOKED), "revoked") == 0);
+    CHECK(strcmp(mncf_compare_name(MNCF_COMPARE_NAND), "!&") == 0 && strcmp(mncf_change_name(MNCF_CHANGE_UNHOOK), "unhook") == 0);
+}
+
+/* A module without sections is code only: a pattern in its data finds nothing (section 6.3). */
+static void test_sections(void)
+{
+    static const char text[] =
+        "format = \"mncf/1\"\nname = \"T\"\n\n[game]\nplatform = \"switch\"\nid = \"0100000000ABC000\"\n\n"
+        "[[cheat]]\nid = \"in-code\"\nname = \"c\"\n"
+        "  [[cheat.patch]]\n  at = { module = \"main\", find = \"68 12 00 B9 ?? ?? ?? 94\", section = \"code\" }\n"
+        "  expect = \"68 12 00 B9\"\n  bytes = \"69 12 00 B9\"\n\n"
+        "[[cheat]]\nid = \"in-data\"\nname = \"d\"\n"
+        "  [[cheat.patch]]\n  at = { module = \"main\", find = \"68 12 00 B9 ?? ?? ?? 94\", section = \"data\" }\n"
+        "  expect = \"68 12 00 B9\"\n  bytes = \"69 12 00 B9\"\n\n"
+        "[[cheat]]\nid = \"overlap\"\nname = \"o\"\n"
+        "  [[cheat.patch]]\n  at = { module = \"main\", find = \"AA ?? AA AA\" }\n"
+        "  expect = \"AA\"\n  bytes = \"AB\"\n";
+    mncf_error err;
+    world w;
+    mncf_file *f;
+    mncf_evaluation *ev;
+    world_init(&w);
+    memset(w.image + 0x200, 0xAA, 5);       /* five bytes AA: the pattern matches at two places */
+    f = mncf_load(text, strlen(text), NULL, NULL, &err);
+    CHECK(f != NULL);
+    if (f == NULL) {
+        return;
+    }
+    ev = mncf_evaluate(f, &w.rt, NULL, &err);
+    CHECK(ev != NULL && strcmp(mncf_evaluation_cheat(ev, 0)->reason, "") == 0 &&
+          mncf_evaluation_cheat(ev, 0)->ops[0].address == 0x8000100);
+    CHECK(ev != NULL && strcmp(mncf_evaluation_cheat(ev, 1)->reason, "pattern-not-found") == 0);
+    CHECK(ev != NULL && strcmp(mncf_evaluation_cheat(ev, 2)->reason, "pattern-ambiguous") == 0);
+    mncf_evaluation_free(ev);
+    mncf_free(f);
+}
+
+/* ---- Every allocation failing in turn --------------------------------------------------------------- */
+
+/* An allocator that fails at one allocation and checks that every free gives the size it was given. */
+typedef struct counting {
+    long fail_at;                       /* the allocation that fails, from 1; 0 for none */
+    long count;
+    long live;
+    size_t bytes;
+    int size_mismatch;
+} counting;
+
+typedef struct header {
+    size_t size;
+    size_t pad;
+} header;
+
+static void *counting_alloc(void *ctx, void *ptr, size_t old_size, size_t new_size)
+{
+    counting *c = (counting *)ctx;
+    header *h = NULL;
+    if (ptr != NULL) {
+        h = (header *)ptr - 1;
+        if (h->size != old_size) {
+            c->size_mismatch = 1;
+        }
+    }
+    if (new_size == 0) {
+        if (ptr != NULL) {
+            c->live--;
+            c->bytes -= h->size;
+            free(h);
+        }
+        return NULL;
+    }
+    c->count++;
+    if (c->fail_at != 0 && c->count == c->fail_at) {
+        return NULL;
+    }
+    if (ptr != NULL) {
+        size_t old = h->size;
+        header *g = (header *)realloc(h, sizeof(header) + new_size);
+        if (g == NULL) {
+            return NULL;
+        }
+        g->size = new_size;
+        c->bytes = c->bytes - old + new_size;
+        return g + 1;
+    }
+    h = (header *)malloc(sizeof(header) + new_size);
+    if (h == NULL) {
+        return NULL;
+    }
+    h->size = new_size;
+    c->live++;
+    c->bytes += new_size;
+    return h + 1;
+}
+
+/* Runs a file, an evaluation, an engine and a pack with the allocator; 1 when every step worked. */
+static int run_all(const mncf_allocator *a)
+{
+    mncf_error err;
+    world w;
+    mncf_file *f;
+    mncf_evaluation *ev;
+    mncf_engine *eng;
+    mncf_pass pass;
+    mncf_trust *t;
+    mncf_pack *p;
+    uint8_t raw[600];
+    size_t n = unhex(DEFLATED_PACK, raw, sizeof raw);
+    const char *held[] = {"ZL"};
+    int ok = 1;
+    int verbose = getenv("MNCF_UNIT_VERBOSE") != NULL;
+#define STEP(name)                                                                                               \
+    do {                                                                                                         \
+        if (verbose) {                                                                                           \
+            printf("    %s\n", name);                                                                            \
+        }                                                                                                        \
+    } while (0)
+    world_init(&w);
+    STEP("trust");
+    t = mncf_trust_new(a);
+    if (t == NULL) {
+        return 0;
+    }
+    STEP("load");
+    f = mncf_load(ENGINE_TEXT, strlen(ENGINE_TEXT), t, a, &err);
+    if (f == NULL) {
+        mncf_trust_free(t);
+        return 0;
+    }
+    STEP("evaluate");
+    ev = mncf_evaluate(f, &w.rt, NULL, &err);
+    ok &= ev != NULL;
+    mncf_evaluation_free(ev);
+    STEP("engine");
+    eng = mncf_engine_new(f, &w.rt, NULL, 60, &err);
+    if (eng != NULL) {
+        STEP("switch");
+        ok &= mncf_engine_switch(eng, "speed", 1, NULL) == MNCF_OK;
+        STEP("hold");
+        ok &= mncf_engine_hold(eng, held, 1) == MNCF_OK;
+        STEP("tick");
+        ok &= mncf_engine_tick(eng, NULL, NULL, NULL, &pass) == MNCF_OK;
+        STEP("set value");
+        ok &= mncf_engine_set_value(eng, "money.count", mncf_number_int(3)) == MNCF_OK;
+        STEP("press");
+        ok &= mncf_engine_press(eng, "ZL+R") == MNCF_OK;
+        STEP("tick");
+        ok &= mncf_engine_tick(eng, NULL, NULL, NULL, &pass) == MNCF_OK;
+        STEP("stop");
+        ok &= mncf_engine_stop(eng, &pass) == MNCF_OK;
+        STEP("free");
+        mncf_engine_free(eng);
+    } else {
+        ok = 0;
+    }
+    STEP("pack");
+    p = mncf_pack_read(raw, n, t, a, &err);
+    ok &= p != NULL;
+    mncf_pack_free(p);
+    mncf_free(f);
+    mncf_trust_free(t);
+#undef STEP
+    return ok;
+}
+
+static void test_allocation_failures(void)
+{
+    counting c;
+    mncf_allocator a;
+    long total, k;
+    int leaks = 0, mismatches = 0;
+    memset(&c, 0, sizeof c);
+    a.fn = counting_alloc;
+    a.ctx = &c;
+    CHECK(run_all(&a));
+    CHECK(c.live == 0 && c.bytes == 0 && !c.size_mismatch);
+    total = c.count;
+    CHECK(total > 10);
+    for (k = 1; k <= total; k++) {
+        memset(&c, 0, sizeof c);
+        c.fail_at = k;
+        if (getenv("MNCF_UNIT_VERBOSE") != NULL) {
+            printf("  allocation %ld fails\n", k);
+        }
+        run_all(&a);
+        if (c.live != 0 || c.size_mismatch) {
+            printf("  when allocation %ld fails: %ld blocks left, sizes %s\n", k, c.live,
+                   c.size_mismatch ? "differ" : "fit");
+        }
+        leaks += c.live != 0;
+        mismatches += c.size_mismatch;
+    }
+    CHECK(leaks == 0);
+    CHECK(mismatches == 0);
+    printf("unit: %ld allocations failed in turn\n", total);
+}
+
+/* ---- The suite's own files through the API ---------------------------------------------------------- */
+
+static void test_suite_files(const char *suite)
+{
+    char path[1024];
+    FILE *fp;
+    long n;
+    char *data;
+    mncf_error err;
+    mncf_file *f;
+    snprintf(path, sizeof path, "%s/cases/signed-one.mncf", suite);
+    fp = fopen(path, "rb");
+    CHECK(fp != NULL);
+    if (fp == NULL) {
+        return;
+    }
+    fseek(fp, 0, SEEK_END);
+    n = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    data = (char *)malloc((size_t)n);
+    CHECK(fread(data, 1, (size_t)n, fp) == (size_t)n);
+    fclose(fp);
+    f = mncf_load(data, (size_t)n, NULL, NULL, &err);
+    CHECK(f != NULL && mncf_file_info_of(f)->signature.result == MNCF_SIGNATURE_UNKNOWN_KEY &&
+          mncf_file_info_of(f)->signature.key_id_count == 1 &&
+          strcmp(mncf_file_info_of(f)->signature.key_ids[0], "21fe31dfa154a261") == 0);
+    mncf_free(f);
+    free(data);
+}
+
+/* Runs a test and says how it went. */
+static void run(void (*test)(void), const char *name)
+{
+    int before = failures;
+    test();
+    printf("%s %s\n", failures == before ? "ok  " : "FAIL", name);
+}
+
+#define RUN(test) run(test, #test)
+
+int main(int argc, char **argv)
+{
+    setvbuf(stdout, NULL, _IONBF, 0);
+    RUN(test_sha256);
+    RUN(test_sha512);
+    RUN(test_base64_crc);
+    RUN(test_ed25519);
+    RUN(test_inflate);
+    RUN(test_zip);
+    RUN(test_packs);
+    RUN(test_toml);
+    RUN(test_numbers);
+    RUN(test_encode);
+    RUN(test_trust);
+    RUN(test_signatures);
+    RUN(test_api);
+    RUN(test_sections);
+    RUN(test_allocation_failures);
+    if (argc > 1) {
+        test_suite_files(argv[1]);
+    }
+    printf("unit: %d checks, %d failed\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
