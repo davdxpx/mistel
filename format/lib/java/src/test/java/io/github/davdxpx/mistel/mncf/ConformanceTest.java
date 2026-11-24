@@ -374,6 +374,13 @@ public final class ConformanceTest {
         }
         b.build((String) env.get("build"));
         b.held(strings(env.get("held")));
+        b.unsupported(strings(env.get("unsupported")));
+        for (Map.Entry<String, Object> e : map(env.get("rewritten")).entrySet()) {
+            for (Object run : list(e.getValue())) {
+                List<Object> r = list(run);
+                b.rewritten(e.getKey(), (Long) r.get(0), (Long) r.get(1));
+            }
+        }
         return b.build();
     }
 
