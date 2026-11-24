@@ -9,6 +9,7 @@ from . import arm64
 from .evaluate import Module, find_all
 
 STEP = 4
+CROWD = 64            # candidates left after which a search looks at its last window first
 
 
 @dataclass
@@ -67,7 +68,12 @@ def _occurrences(image, needle, ranges, limit):
 
 def make_pattern(module, offset, cover=4, longest=64, limit=200000):
     """The shortest pattern that finds `offset` exactly once and covers the first `cover` bytes of the place, or None
-    when the place is not in code or read-only data, or no pattern up to `longest` bytes is unique."""
+    when the place is not in code or read-only data, or no pattern up to `longest` bytes is unique.
+
+    Each pattern grows from a word of fixed bytes near the place, and the places where that word is found are the
+    candidates. A candidate is checked only for the bytes the pattern gained since; and where many are left, the
+    longest window the search could reach is tried first, as a window that two candidates match cannot have a unique
+    one inside it. Both only save time: the result is the one a check of every window would give."""
     section = module.section_of(offset)
     if section not in ('code', 'rodata'):
         return None
@@ -109,6 +115,8 @@ def _grow(module, offset, cover, lo, hi, window, a0, hits, ranges, order, longes
     end = min(hi, start + ((end - start + STEP - 1) // STEP) * STEP)
     image = module.image
     alive = None
+    verified = None        # the module offsets of the pattern whose bytes every candidate in `alive` was checked for
+    looked_ahead = False
     toggle = 0
     while True:
         items = window[start - lo:end - lo]
@@ -117,9 +125,25 @@ def _grow(module, offset, cover, lo, hi, window, a0, hits, ranges, order, longes
             shift = a0 - start
             if alive is None:
                 alive = [h - shift for h in hits]
-            alive = [q for q in alive if _matches(image, q, items, ranges)]
+            whole = len(items) == end - start
+            # The pattern only grows: a candidate needs checking only for the bytes added since it was checked.
+            done = (0, 0) if verified is None or not whole else (verified[0] - start, verified[1] - start)
+            runs = _fixed_runs(items, done)
+            alive = [q for q in alive if _matches(image, q, len(items), runs, ranges)]
+            verified = (start, end) if whole else None
             if alive == [start]:
                 return Pattern(items, start, offset - start)
+            if len(alive) > CROWD and not looked_ahead:
+                # Many candidates are left. Every later window lies inside the last one this order grows to, so
+                # where two candidates match that one, none of the windows before it can be unique.
+                looked_ahead = True
+                fs, fe = _last_window(start, end, lo, hi, order, longest, toggle)
+                last = window[fs - lo:fe - lo]
+                if len(last) == fe - fs:
+                    last_runs = _fixed_runs(last, (0, 0))
+                    if sum(1 for _ in zip(range(2), (q for q in alive if _matches(
+                            image, q - (start - fs), len(last), last_runs, ranges)))) == 2:
+                        return None
         grow_back = start - STEP >= lo
         grow_ahead = end + STEP <= hi
         if end - start >= longest or not (grow_back or grow_ahead):
@@ -139,11 +163,46 @@ def _grow(module, offset, cover, lo, hi, window, a0, hits, ranges, order, longes
                 alive = [q - STEP for q in alive]
 
 
-def _matches(image, q, items, ranges):
-    n = len(items)
+def _last_window(start, end, lo, hi, order, longest, toggle):
+    """The window that growing from (start, end) in this order ends with."""
+    while True:
+        grow_back = start - STEP >= lo
+        grow_ahead = end + STEP <= hi
+        if end - start >= longest or not (grow_back or grow_ahead):
+            return start, end
+        if order == 'forward':
+            ahead = grow_ahead
+        elif order == 'backward':
+            ahead = not grow_back
+        else:
+            ahead = grow_ahead and (toggle % 2 == 0 or not grow_back)
+            toggle += 1
+        if ahead:
+            end += STEP
+        else:
+            start -= STEP
+
+
+def _fixed_runs(items, done):
+    """(index, bytes) for each run of fixed items of the pattern outside the indices in `done`, which are known to
+    match."""
+    out, i, n = [], 0, len(items)
+    while i < n:
+        if done[0] <= i < done[1]:
+            i = done[1]
+        elif items[i] is None:
+            i += 1
+        else:
+            j = i
+            while j < n and items[j] is not None and not done[0] <= j < done[1]:
+                j += 1
+            out.append((i, bytes(items[i:j])))
+            i = j
+    return out
+
+
+def _matches(image, q, n, runs, ranges):
+    """Whether a pattern of n items matches at q, inside the search ranges, given the runs of fixed bytes to check."""
     if not any(s <= q and q + n <= e for s, e in ranges):
         return False
-    for i, b in enumerate(items):
-        if b is not None and image[q + i] != b:
-            return False
-    return True
+    return all(image[q + i:q + i + len(b)] == b for i, b in runs)
