@@ -1,10 +1,11 @@
-# The `.mncf` specification
+# The specifications
 
-The specification of the Mistel Native Cheat Format lives here, one file per major version: `mncf-1.md` for `mncf/1`.
+The specifications of Mistel's formats live here, one file per major version: `mncf-1.md` for the Mistel Native Cheat Format `mncf/1`, and `mnmf-1.md` for the Mistel Native Mod Format `mnmf/1`.
 
 | File | Version | Status |
 |---|---|---|
 | [`mncf-1.md`](mncf-1.md) | `mncf/1` | Draft |
+| [`mnmf-1.md`](mnmf-1.md) | `mnmf/1`, `mnmf-pack/1` | Draft, no library yet |
 
 A draft can still change. The libraries in [`../lib/`](../lib/) and the conformance suite in [`../tests/`](../tests/) follow it.
 

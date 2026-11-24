@@ -7,7 +7,7 @@ This is the plan for the parts and how data moves between them. Each part's own 
 The games run natively on Android: an nxnative-based compatibility layer (Banana Native, Peanuts Native) runs the game's own ARM64 code on the phone's CPU, answers its system calls and translates its graphics. Mistel does not replace any of that. It adds what a player or a modder needs on top:
 
 - **Cheats** that an emulator loads from `.mncf` files.
-- **Mods** that change a game's code, with knowledge that survives an update.
+- **Mods** that change a game's files and code, as `.mnmf` files, with knowledge that survives an update.
 - **Companions**: extra programs and screens that talk to a running game, for example on a handheld's second screen.
 
 ## The flow
