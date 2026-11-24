@@ -603,6 +603,7 @@ For the build that runs, the runtime takes the part's **stated status**: the par
 
 - A stated status never outweighs a row that does not fit: a file changed under a build that the authors call `works` still refuses the part.
 - Every refusal switches the part off: nothing that may not fit runs by itself. A part refused for `build-broken`, `file-changed`, `file-missing`, `file-exists` or `unchecked`, and for no other reason, MAY be switched on by the player at their own risk, after the runtime has said why it is off. The runtime keeps that choice for that build only, so that the next update asks again, and shows the part as `forced`. A part refused for any other reason cannot be forced: the reason is a broken file, a missing capability or a rule of the mod itself.
+- A runtime that converts a mod from the game it runs (section 20) MAY count the player's adding of the mod as that choice for the build it runs, for the parts refused only for `unchecked`: the player adds the mod for the game in front of them. After the next update, those parts are held off again until the player chooses.
 - A runtime learns the hash of an original in the cheapest way it has: from the records of the game's own package where they hold one, through an index rule, or by hashing the original's bytes once. It SHOULD keep the hashes for each build, and the result for each mod and build, so that the check costs nothing at the next start.
 
 ### 15.4 Game updates
