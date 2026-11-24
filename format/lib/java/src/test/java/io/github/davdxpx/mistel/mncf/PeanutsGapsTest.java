@@ -206,6 +206,97 @@ public final class PeanutsGapsTest {
         Check.equal(Collections.<String, String>emptyMap(), all.get(0).export().reasons());   // Money falls back
     }
 
+    public static void testBackKeepsTheFileBelow64Kib() throws Exception {
+        StringBuilder code = new StringBuilder();
+        for (int i = 0; i < 83; i++) {                                    // 249 words
+            code.append(i == 0 ? "" : "\n").append("04100000 00000010 00000001");
+        }
+        StringBuilder text = new StringBuilder("format = \"mncf/1\"\nname = \"Big\"\n"
+                + "extensions = { optional = [\"raw/1\"] }\n[game]\nplatform = \"switch\"\nid = \"" + Synthetic.GAME_ID
+                + "\"\n[builds.\"1.0.0\"]\nmodules = { main = \"" + Synthetic.BUILD_ID + "\" }\n");
+        for (int i = 0; i < 40; i++) {
+            text.append("[[cheat]]\nid = \"c").append(i).append("\"\nname = \"Cheat ").append(i)
+                    .append("\"\n[[cheat.raw]]\nsyntax = \"atmosphere\"\nbuild = \"1.0.0\"\ncode = \"\"\"\n")
+                    .append(code).append("\n\"\"\"\n");
+        }
+        MncfFile f = Mncf.load(Fixtures.utf8(text.toString()));
+        Converter.Export back = Converter.toAtmosphere(f, "1.0.0", null, "raw", null, null);
+        int size = Fixtures.utf8(back.text()).length;
+        Check.isTrue(size <= 0xFFFF, "size " + size);
+        Check.isTrue(size + code.length() + 12 > 0xFFFF, "one entry more would fit: " + size);
+        Check.equal(Collections.singleton("atmosphere:too-big"), new java.util.HashSet<>(back.reasons().values()));
+        Check.equal(40, back.written().size() + back.reasons().size());
+        Check.equal(back.written().size(), Atmosphere.parse(back.text()).size());
+        back = Converter.toAtmosphere(f, "1.0.0", null, "raw", null, null, Converter.AtmosphereLimits.NONE);
+        Check.equal(Arrays.asList(40, 0), Arrays.asList(back.written().size(), back.reasons().size()));
+        Check.isTrue(Fixtures.utf8(back.text()).length > 0xFFFF, "all of it");
+    }
+
+    public static void testLimitsAndNames() throws Exception {
+        for (final int bad : new int[] {0, -1}) {
+            Check.throwsWith(IllegalArgumentException.class, "the limit entries", new Check.Action() {
+                @Override
+                public void run() throws Exception {
+                    new Converter.AtmosphereLimits(bad, null, null, null);
+                }
+            });
+        }
+        Check.equal("a)b}c", Converter.atmosphereName("a]b}c", false, 63));
+        Check.equal("a]b)c", Converter.atmosphereName("a]b}c", true, 63));
+        StringBuilder e40 = new StringBuilder();
+        StringBuilder e31 = new StringBuilder();
+        for (int i = 0; i < 40; i++) {
+            e40.append('\u00E9');
+            if (i < 31) {
+                e31.append('\u00E9');
+            }
+        }
+        Check.equal(e31.toString(), Converter.atmosphereName(e40.toString(), false, 63));   // the 32nd: cut in half
+        Check.equal("a b c", Converter.atmosphereName("a\u2028b\u0000c", false, null));
+    }
+
+    public static void testSeveralFilesBackInOne() throws Exception {
+        final MncfFile a = convert(source(ModuleTest.module(true), "[Money]\n04000000 00001008 B9001269\n"));
+        MncfFile b = convert(source(null, "[Heap]\n04100000 00000010 00000002\n"));
+        Check.throwsWith(IllegalArgumentException.class, "not 'best'", new Check.Action() {
+            @Override
+            public void run() throws Exception {
+                Converter.toAtmosphereMerged(Collections.singletonList(new Converter.BackSource(a, null, "best", null)),
+                        null, null);
+            }
+        });
+        // Builds and modules are matched by the first 16 digits of main's build ID, in any case.
+        List<Converter.BackSource> sources = Arrays.asList(new Converter.BackSource(a, null, "core", null),
+                Converter.BackSource.of(b));
+        List<Converter.MergedExport> out = Converter.toAtmosphereMerged(sources, Collections.singletonMap(
+                Synthetic.BUILD_ID.toLowerCase(java.util.Locale.ROOT) + "000000000000000000000000000000000000000000000000",
+                ModuleTest.module(true)), null);
+        Check.equal(1, out.size());
+        Check.equal(Arrays.asList(Synthetic.BUILD_ID + ".txt", Arrays.asList("1.0.0", "1.0.0"), null),
+                Arrays.asList(out.get(0).fileName(), out.get(0).builds(), out.get(0).reason()));
+        Check.equal(Arrays.asList(Collections.singletonMap("money", "core"), Collections.singletonMap("heap", "raw")),
+                out.get(0).written());
+        MncfFile again = convert(source(ModuleTest.module(true), out.get(0).text()));
+        List<String> names = new ArrayList<>();
+        for (Cheat c : again.cheats()) {
+            names.add(c.name());
+        }
+        Check.equal(Arrays.asList("Money", "Heap"), names);
+        // A build that only a module names is written from what the files can place without their own offsets.
+        CodeModule m = ModuleTest.module(true);
+        Map<String, long[]> sections = new LinkedHashMap<>();
+        for (String s : m.sectionNames()) {
+            sections.put(s, new long[] {m.sectionStart(s), m.sectionEnd(s)});
+        }
+        CodeModule other = new CodeModule(m.image(), sections, "1122334455667788", null, null);
+        out = Converter.toAtmosphereMerged(sources, Collections.singletonMap("1122334455667788", other), null);
+        Check.equal(Arrays.asList(Synthetic.BUILD_ID + ".txt", "1122334455667788.txt"),
+                Arrays.asList(out.get(0).fileName(), out.get(1).fileName()));
+        Check.equal(Arrays.asList(null, null), out.get(1).builds());
+        Check.equal(Arrays.asList(Collections.<String, String>emptyMap(), Collections.singletonMap("heap", "build-unknown")),
+                out.get(1).reasons());
+    }
+
     public static void testCompareReadsTheOriginalLeniently() throws Exception {
         String original = "// notes\n[Heap]\n04100000 00000010 00000001\n\n[Broken]\n04100000 00000010 GGGGGGGG\n";
         Converter.Comparison cmp = Converter.compare(original, "[Heap]\n04100000 00000010 00000001\n", false);

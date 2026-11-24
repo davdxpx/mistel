@@ -1,9 +1,11 @@
-[Section A]
+[--SectionStart:Section A--]
 
 [Money]
 04000000 00001048 B9001269
 
-[Data]
+[--SectionEnd:Section A--]
+
+[--SectionStart:Data--]
 
 [Hold A]
 80000001
@@ -12,8 +14,7 @@
 04000000 0000104C 94000040
 20000000
 
-[Data]
-20000001
+[--SectionEnd:Data--]
 
 [Speed]
 80000100

@@ -632,9 +632,15 @@ Where the code is only plain writes, the converter writes core operations: a wri
 
 Back to Atmosphère, a converter writes each build of the file as its own `<build ID>.txt`, named by the build's main module; a build that names no main module cannot be one. It can also write a build the file does not name, from the cheats' patterns, given that build's main module. For each cheat it writes the `raw` entry for that build where there is one, and its core operations otherwise, or where the caller prefers them, for all cheats or for one, such as a cheat whose value the player set: a patch as stores of its bytes, a pointer path as loads, a `hold` as a key block whose else branch writes back the original bytes of the patches, an action as a key block, a single `when` on a fixed place as a memory condition, and each value as the player chose it or as its default. Where the core operations cannot be written, a cheat with a `raw` entry for the build falls back to it.
 
-The file keeps Atmosphère's limits, beyond which Atmosphère refuses the whole file: one master entry, which holds the code of every master cheat in file order and takes the first one's name; at most 127 other entries, the names that start a group and the entries with only `20000001` that end one counted with them; and at most 256 words in an entry. A group is ended where a cheat in no group follows it.
+The file keeps the limits of the host it is for, beyond which the host refuses the whole file. Atmosphère's dmnt holds one master entry, which gets the code of every master cheat in order and the first one's name; at most 127 other entries with code, of at most 256 words each; and a file below 64 KiB, so at most 65,535 bytes of UTF-8. An entry without code takes no slot there. A host that takes more, such as an emulator's own cheat engine, MAY give its own limits, or none.
 
-With the build's main module, the converter finds the patterns and checks each patch and override stub against `expect`, as a runtime would, because Atmosphère code writes without looking; without the module, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same in every library: the reader's reason where the cheat has a problem of its own (Appendix B), and otherwise the first of these that it meets, in the order of section 11.2:
+The cheats go in file order, the master cheats into the master entry, except that a cheat comes after the cheats it requires. A group starts with an EdiZon section marker, `[--SectionStart:Name--]`, and ends with `[--SectionEnd:Name--]` where another group or a cheat in no group follows; the last group ends with the file. The markers have no code, so they take no slot in dmnt and no switch in the overlays that list its cheats.
+
+Names are written as dmnt reads them. The bracket that would end a name early, `]`, or `}` for the master, becomes `)`; a control character or a line break becomes a space; and a name is cut to 63 bytes of UTF-8 at a character boundary, as dmnt keeps 64 bytes without the end of the string. A host that keeps longer names MAY have them whole. In the section markers, the group's name is cut alike for the start and the end. A name that an entry of the file already has gets ` (2)`, ` (3)` and so on, as dmnt keeps the state of each switch by its name.
+
+A host reads one cheat file a build, so several files of one game, such as the sources a runtime holds for it, MAY go into one file for each build. Builds are matched by the build ID of their main module, its first 16 digits. The master cheats of every file go into the one master entry, then each file's other cheats in turn, in one set of limits. A file that does not name a build gives it what it can write without its own offsets for that build, as the reader would run it there.
+
+With the build's main module, the converter finds the patterns and checks each patch and override stub against `expect`, as a runtime would, because Atmosphère code writes without looking; without the module, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same in every library: the reader's reason where the cheat has a problem of its own (Appendix B); otherwise the first of these that it meets, in the order of section 11.2, an entry of more words than the host takes among them; then `requires:<id>` where it requires a cheat that is left out, as the reader refuses it; and last what the whole file holds, in the order the cheats go: the words of the master entry, the entries and the size:
 
 | Reason | The cheat |
 |---|---|
@@ -650,8 +656,10 @@ With the build's main module, the converter finds the patterns and checks each p
 | `atmosphere:override` | Has an override without `expect`, or one whose stub is longer than it |
 | `atmosphere:module`, `atmosphere:region`, `atmosphere:address` | Has a place Atmosphère cannot name: in a module other than main, in a region without a memory code, or at an absolute address |
 | `atmosphere:empty` | Has nothing to write |
-| `atmosphere:too-long` | Would be an entry of more than 256 words, or make the master entry longer than that |
-| `atmosphere:too-many` | Would be an entry past the 127th |
+| `requires:<id>` | Requires a cheat that is left out |
+| `atmosphere:too-long` | Would be an entry of more words than the host takes (256 in Atmosphère), or make the master entry longer than that |
+| `atmosphere:too-many` | Would be an entry with code past the last the host holds (the 127th in Atmosphère) |
+| `atmosphere:too-big` | Would make the file larger than the host reads (65,535 bytes in Atmosphère), with the section markers before its entry |
 
 For the patch files that Atmosphère and the emulators apply to a code module when they load it (IPS and IPS32 in `exefs_patches/<set>/`, and IPSwitch text, `.pchtxt`):
 

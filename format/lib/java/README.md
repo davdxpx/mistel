@@ -124,9 +124,19 @@ for (Converter.BuildExport b : Converter.toAtmosphereAll(file, modulesByBuild, "
     b.build();                                          // every build of the file, in its order
     b.export();                                         // its Export, or null with reason() "atmosphere:module"
 }
+Converter.toAtmosphere(file, "1.0.0", module, "raw", choices, null,
+        new Converter.AtmosphereLimits(256, 0x2000, null, null));   // a host that takes more; or NONE
+
+for (Converter.MergedExport m : Converter.toAtmosphereMerged(Arrays.asList(
+        Converter.BackSource.of(shop), new Converter.BackSource(speed, choices, "core", null)),
+        modulesByBuildId, null)) {                       // null: Atmosphère's limits
+    m.fileName();                                       // one file a build, with every source's cheats
+    m.builds();                                         // each source's key of the build, or null
+    m.reasons();                                        // for each source, the cheats left out
+}
 ```
 
-Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say. The file keeps Atmosphère's limits: one master entry with the code of every master cheat, and at most 127 other entries (group starts and ends count) of at most 256 words; what does not fit is left out with `atmosphere:too-many` or `atmosphere:too-long`. A group is ended where a cheat in no group follows it.
+Back to Atmosphère, with the build's main module a converter finds the patterns and checks each patch against `expect`; without it, it writes what it can place as it is. Each cheat it leaves out gets a stable reason, the same as in Python (spec, section 15): the reader's reason for a cheat with a problem of its own, `build-unknown`, `pattern-not-found`, `pattern-ambiguous`, `expect-mismatch`, `outside`, `value-out-of-range`, or `atmosphere:<what>` for what Atmosphère cannot say. The file keeps Atmosphère's limits: one master entry with the code of every master cheat, at most 127 other entries with code of at most 256 words, less than 64 KiB, names of at most 63 bytes. What does not fit is left out with `atmosphere:too-many`, `atmosphere:too-long` or `atmosphere:too-big`, and a cheat that requires a cheat left out with `requires:<id>`. A host that takes more gives its own `Converter.AtmosphereLimits`, where null is no limit, or `AtmosphereLimits.NONE`. Groups are EdiZon section markers, which take no slot and show no switch; names lose the bracket that would end them early and control characters (`Converter.atmosphereName`), and a name the file has already gets " (2)". `toAtmosphereMerged` writes several files of one game into one file for each build, as a host reads one a build, matched by the build ID of main.
 
 A converted cheat requires the master code only where it depends on it. Lines of a source that are neither names nor code go into the file's `about`, and an entry whose code mixes words with other text is left out and named there.
 

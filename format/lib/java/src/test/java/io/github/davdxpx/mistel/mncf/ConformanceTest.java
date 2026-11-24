@@ -198,45 +198,122 @@ public final class ConformanceTest {
     }
 
     /**
+     * The limits of a case back to Atmosphère: Atmosphère's, "none", or a table that changes
+     * some of them, where "none" is no limit.
+     */
+    static Converter.AtmosphereLimits caseLimits(Object limits) {
+        if (limits == null) {
+            return Converter.AtmosphereLimits.ATMOSPHERE;
+        }
+        if ("none".equals(limits)) {
+            return Converter.AtmosphereLimits.NONE;
+        }
+        Converter.AtmosphereLimits a = Converter.AtmosphereLimits.ATMOSPHERE;
+        Integer[] v = {a.entries(), a.words(), a.size(), a.name()};
+        String[] keys = {"entries", "words", "size", "name"};
+        Map<String, Object> m = map(limits);
+        for (int i = 0; i < keys.length; i++) {
+            if (m.containsKey(keys[i])) {
+                Object x = m.get(keys[i]);
+                v[i] = "none".equals(x) ? null : Integer.valueOf(((Number) x).intValue());
+            }
+        }
+        return new Converter.AtmosphereLimits(v[0], v[1], v[2], v[3]);
+    }
+
+    static Choices caseChoices(Map<String, Object> t) {
+        if (!t.containsKey("values")) {
+            return null;
+        }
+        Choices.Builder b = Choices.builder();
+        for (Map.Entry<String, Object> e : map(t.get("values")).entrySet()) {
+            b.value(e.getKey(), e.getValue());
+        }
+        return b.build();
+    }
+
+    static Map<String, String> casePreferCheats(Map<String, Object> t) {
+        if (!t.containsKey("prefer_cheats")) {
+            return null;
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : map(t.get("prefer_cheats")).entrySet()) {
+            out.put(e.getKey(), (String) e.getValue());
+        }
+        return out;
+    }
+
+    static MncfFile caseFile(Map<String, Object> t, File folder) throws IOException, MncfException {
+        String text = t.containsKey("text") ? (String) t.get("text") : readText(new File(folder, (String) t.get("mncf")));
+        return Mncf.load(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
      * What the converter writes back to Atmosphère for one build: the file's name and text,
-     * how each cheat was written, and the reason each other cheat was left out.
+     * how each cheat was written, and the reason each other cheat was left out. With
+     * [[source]], several files go into one file for each build: "back" lists them, and the
+     * one of build_id is compared, with "written" and "reasons" for each source.
      */
     static Map<String, Object> backResults(Map<String, Object> c, File folder) throws IOException {
-        String text = c.containsKey("text") ? (String) c.get("text")
-                : readText(new File(folder, (String) c.get("mncf")));
         Map<String, Object> out = new LinkedHashMap<>();
-        MncfFile f;
-        try {
-            f = Mncf.load(text.getBytes(StandardCharsets.UTF_8));
-        } catch (MncfException e) {
-            out.put("error", e.code());
-            return out;
-        }
         CodeModule module = c.containsKey("module")
                 ? caseModule(map(c.get("module")), (String) c.get("module_build_id")) : null;
-        Choices choices = null;
-        if (c.containsKey("values")) {
-            Choices.Builder b = Choices.builder();
-            for (Map.Entry<String, Object> e : map(c.get("values")).entrySet()) {
-                b.value(e.getKey(), e.getValue());
-            }
-            choices = b.build();
-        }
         try {
-            Map<String, String> preferCheats = null;
-            if (c.containsKey("prefer_cheats")) {
-                preferCheats = new LinkedHashMap<>();
-                for (Map.Entry<String, Object> e : map(c.get("prefer_cheats")).entrySet()) {
-                    preferCheats.put(e.getKey(), (String) e.getValue());
+            Converter.AtmosphereLimits limits = caseLimits(c.get("limits"));
+            if (c.containsKey("source")) {
+                List<Converter.BackSource> sources = new ArrayList<>();
+                for (Object o : list(c.get("source"))) {
+                    Map<String, Object> s = map(o);
+                    sources.add(new Converter.BackSource(caseFile(s, folder), caseChoices(s),
+                            s.containsKey("prefer") ? (String) s.get("prefer") : "raw", casePreferCheats(s)));
                 }
+                Map<String, CodeModule> modules = module == null ? null
+                        : Collections.singletonMap((String) c.get("module_build_id"), module);
+                List<Object> back = new ArrayList<>();
+                Converter.MergedExport chosen = null;
+                for (Converter.MergedExport b : Converter.toAtmosphereMerged(sources, modules, limits)) {
+                    Map<String, Object> one = new LinkedHashMap<>();
+                    if (b.fileName() != null) {
+                        one.put("name", b.fileName());
+                    }
+                    if (b.reason() != null) {
+                        one.put("reason", b.reason());
+                    }
+                    List<Object> builds = new ArrayList<>();
+                    for (String k : b.builds()) {
+                        builds.add(k == null ? "" : k);
+                    }
+                    one.put("builds", builds);
+                    back.add(one);
+                    if (chosen == null && c.get("build_id").equals(b.buildId())) {
+                        chosen = b;
+                    }
+                }
+                List<Object> written = new ArrayList<>();
+                List<Object> reasons = new ArrayList<>();
+                for (int i = 0; i < chosen.written().size(); i++) {
+                    written.add(new LinkedHashMap<Object, Object>(chosen.written().get(i)));
+                    reasons.add(new LinkedHashMap<Object, Object>(chosen.reasons().get(i)));
+                }
+                out.put("back", back);
+                out.put("name", chosen.fileName());
+                out.put("text", chosen.text());
+                out.put("written", written);
+                out.put("reasons", reasons);
+                return out;
             }
-            Converter.Export export = Converter.toAtmosphere(f, (String) c.get("build"), module,
-                    c.containsKey("prefer") ? (String) c.get("prefer") : "raw", choices, preferCheats);
+            Converter.Export export = Converter.toAtmosphere(caseFile(c, folder), (String) c.get("build"), module,
+                    c.containsKey("prefer") ? (String) c.get("prefer") : "raw", caseChoices(c), casePreferCheats(c),
+                    limits);
             out.put("name", export.fileName());
             out.put("text", export.text());
             out.put("written", new LinkedHashMap<Object, Object>(export.written()));
             out.put("reasons", new LinkedHashMap<Object, Object>(export.reasons()));
+        } catch (MncfException e) {
+            out.clear();
+            out.put("error", e.code());
         } catch (IllegalArgumentException e) {
+            out.clear();
             out.put("error", "error");
         }
         return out;
@@ -813,7 +890,7 @@ public final class ConformanceTest {
         }
         Object[][] defaults = {{"signature", "unsigned"}, {"signers", new ArrayList<>()}, {"build", ""},
             {"warnings", new ArrayList<>()}, {"name", null}, {"written", new LinkedHashMap<>()},
-            {"reasons", new LinkedHashMap<>()}};
+            {"reasons", new LinkedHashMap<>()}, {"back", new ArrayList<>()}};
         for (Object[] d : defaults) {
             String key = (String) d[0];
             if (!got.containsKey(key)) {

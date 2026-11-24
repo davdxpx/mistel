@@ -833,40 +833,96 @@ class BackFile:
     reason: str = None        # atmosphere:module for a build that names no main module
 
 
-def to_atmosphere_all(f, modules=None, prefer='raw', choices=None, prefer_cheats=None):
-    """Every build of a loaded file as an Atmosphère cheat file, in the file's order: a list of BackFile.
-    `modules` maps build keys to the main module of that build, for the cheats that find their place by pattern."""
-    out = []
-    for key, build in f.builds.items():
-        if 'main' not in build.modules:
-            out.append(BackFile(key, reason='atmosphere:module'))
-            continue
-        name, text, report = to_atmosphere(f, key, (modules or {}).get(key), prefer, choices, prefer_cheats)
-        out.append(BackFile(key, name, text, report))
-    return out
+@dataclass(frozen=True)
+class AtmosphereLimits:
+    """What one Atmosphère cheat file may hold, beyond which a host refuses the whole file; None is no limit.
+
+    ATMOSPHERE_LIMITS are those of Atmosphère's dmnt. A host that takes more, such as an emulator's own cheat engine,
+    gives its own, or NO_LIMITS (spec, section 15).
+    """
+    entries: int = 127      # entries with code besides the master: dmnt holds 0x80, the first the master
+    words: int = 0x100      # code words of one entry, and of the master entry
+    size: int = 0xFFFF      # bytes of the file: dmnt reads a file below 64 KiB
+    name: int = 63          # bytes of a name: dmnt keeps 64, the 64th without the end of the string
+
+    def __post_init__(self):
+        for key in ('entries', 'words', 'size', 'name'):
+            v = getattr(self, key)
+            if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 1):
+                raise ValueError(f'the limit {key} is a whole number of at least 1, or None, not {v!r}')
 
 
-ATM_ENTRIES = 127       # entries of an Atmosphère file besides the master: dmnt holds 0x80, the first the master
-ATM_WORDS = 0x100       # words of one entry
+ATMOSPHERE_LIMITS = AtmosphereLimits()
+NO_LIMITS = AtmosphereLimits(None, None, None, None)
+ATM_ENTRIES = ATMOSPHERE_LIMITS.entries
+ATM_WORDS = ATMOSPHERE_LIMITS.words
+SECTION_SIZE = len('--SectionStart:--')      # what an EdiZon section marker adds to the group's name
+_LINE_BREAKS = '\x85\u2028\u2029'
 
 
 def _word_count(lines):
     return sum(len(line.split()) for line in lines)
 
 
-def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None, prefer_cheats=None):
+def atmosphere_name(name, master=False, limit=63):
+    """A name as an Atmosphère file holds it: the bracket that would end it early (`]`, for a master `}`) becomes `)`,
+    a control character or line break a space, and it is cut to `limit` bytes of UTF-8 at a character boundary
+    (None: not cut)."""
+    close = '}' if master else ']'
+    out = ''.join(')' if ch == close else ' ' if ord(ch) < 0x20 or ord(ch) == 0x7F or ch in _LINE_BREAKS else ch
+                  for ch in name)
+    return out if limit is None else _cut(out, limit)
+
+
+def _cut(text, limit):
+    data = text.encode('utf-8')
+    return text if len(data) <= limit else data[:max(limit, 0)].decode('utf-8', 'ignore')
+
+
+def _section(kind, group, limit):
+    """An EdiZon section marker, `--SectionStart:Name--` or `--SectionEnd:Name--`: an entry without code, which takes
+    no slot in dmnt. The group's name is cut alike in both, so that they still pair."""
+    return f'--Section{kind}:{atmosphere_name(group, False, None if limit is None else limit - SECTION_SIZE)}--'
+
+
+def _entry_size(name, lines):
+    """The bytes an entry adds to the text atmosphere.write_file makes: its name line, its code lines, a blank line."""
+    return len(name.encode('utf-8')) + 2 + sum(len(line) + 1 for line in lines) + 2
+
+
+def _unique(name, used, limit):
+    """The name, or with " (2)", " (3)" and so on where an entry already has it: dmnt keeps the switches' states by
+    name."""
+    k = 2
+    out = name
+    while out in used:
+        suffix = f' ({k})'
+        out = (name if limit is None else _cut(name, limit - len(suffix))) + suffix
+        k += 1
+    return out
+
+
+def _modes(prefer, prefer_cheats):
+    modes = dict(prefer_cheats or {})
+    for mode in [prefer, *modes.values()]:
+        if mode not in ('raw', 'core'):
+            raise ValueError(f'prefer is "raw" or "core", not {mode!r}')
+    return modes
+
+
+def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None, prefer_cheats=None,
+                  limits=ATMOSPHERE_LIMITS):
     """(file name, text, BackReport): the cheats of a loaded file as an Atmosphère cheat file for one build.
 
     A build the file does not name is written from its patterns, with the module of that build; its file name is the
     module's build ID. `choices` gives the values the player chose (mncf.Choices); else the defaults are written.
     `prefer` is "raw" or "core" for every cheat, and `prefer_cheats` maps cheat ids to "raw" or "core" where one
-    cheat should differ, such as one whose value the player set. The file keeps Atmosphère's limits: one master entry
-    with the code of every master cheat, and up to 127 other entries of up to 256 words each.
+    cheat should differ, such as one whose value the player set. The file keeps `limits` (AtmosphereLimits), by
+    default Atmosphère's: one master entry with the code of every master cheat, up to 127 other entries of up to 256
+    words each, less than 64 KiB, names of up to 63 bytes.
     """
-    modes = dict(prefer_cheats or {})
-    for mode in [prefer, *modes.values()]:
-        if mode not in ('raw', 'core'):
-            raise ValueError(f'prefer is "raw" or "core", not {mode!r}')
+    modes = _modes(prefer, prefer_cheats)
+    limits = ATMOSPHERE_LIMITS if limits is None else limits
     build = f.builds.get(build_key)
     if build is not None:
         main_id = build.modules.get('main')
@@ -877,66 +933,243 @@ def to_atmosphere(f, build_key, module=None, prefer='raw', choices=None, prefer_
     else:
         raise ValueError(f'the file has no build {build_key!r}, and no module of it is given')
     chosen = choices.values if choices is not None else {}
-    report = BackReport()
-    entries, group, master, master_lines = [], None, None, []
+    part = _Part(_lower(f, build_key, module, prefer, chosen, modes, limits))
+    return f'{main_id[:16].upper()}.txt', atm.write_file(_assemble([part], limits)), part.report
 
-    def leave_out(c, why, code):
-        report.skipped.append((c.id, why))
-        report.reasons[c.id] = code
 
+def to_atmosphere_all(f, modules=None, prefer='raw', choices=None, prefer_cheats=None, limits=ATMOSPHERE_LIMITS):
+    """Every build of a loaded file as an Atmosphère cheat file, in the file's order: a list of BackFile.
+    `modules` maps build keys to the main module of that build, for the cheats that find their place by pattern."""
+    out = []
+    for key, build in f.builds.items():
+        if 'main' not in build.modules:
+            out.append(BackFile(key, reason='atmosphere:module'))
+            continue
+        name, text, report = to_atmosphere(f, key, (modules or {}).get(key), prefer, choices, prefer_cheats, limits)
+        out.append(BackFile(key, name, text, report))
+    return out
+
+
+@dataclass
+class BackSource:
+    """One loaded file to write back together with others (to_atmosphere_merged): the player's choices for it, and
+    raw or core for its cheats, as to_atmosphere takes them."""
+    file: object
+    choices: object = None
+    prefer: str = 'raw'
+    prefer_cheats: dict = None
+
+
+@dataclass
+class MergedBackFile:
+    """One build as one Atmosphère cheat file with the cheats of several files, or the reason a build cannot be one."""
+    build_id: str = None      # the first 16 digits of the build ID of the main module, upper case
+    name: str = None          # <build ID>.txt
+    text: str = None
+    reports: list = None      # a BackReport for each source, in their order
+    builds: list = None       # for each source, its key of the build; None where the source does not name it
+    reason: str = None        # atmosphere:module for a build that names no main module
+
+
+def to_atmosphere_merged(sources, modules=None, limits=ATMOSPHERE_LIMITS):
+    """Several loaded files of one game as Atmosphère cheat files, one for each build: a list of MergedBackFile.
+
+    A host reads one cheat file a build, so every file's cheats for a build go into one, in one set of `limits`: one
+    master entry with the code of every master cheat, then each file's cheats, in the order of `sources` (BackSource).
+    Builds are matched by the build ID of their main module. `modules` maps build IDs to the main module of that build,
+    for the cheats that find their place by pattern; a build that only a module names is written from what the files
+    can place without their own offsets for it, as is a build that one file names for the others. The files come in
+    the order their builds first appear, then those of the modules; a build that names no main module comes as one
+    with reason `atmosphere:module`.
+    """
+    limits = ATMOSPHERE_LIMITS if limits is None else limits
+    modules = {k[:16].upper(): m for k, m in (modules or {}).items()}
+    sources = list(sources)
+    for s in sources:
+        _modes(s.prefer, s.prefer_cheats)
+    order = []
+    for i, s in enumerate(sources):
+        for key, build in s.file.builds.items():
+            main = build.modules.get('main')
+            if main is None:
+                order.append(('no-main', i, key))
+            elif ('file', main[:16].upper()) not in order:
+                order.append(('file', main[:16].upper()))
+    order += [('file', bid) for bid in modules if ('file', bid) not in order]
+    out = []
+    for item in order:
+        if item[0] == 'no-main':
+            _, i, key = item
+            out.append(MergedBackFile(builds=[key if j == i else None for j in range(len(sources))],
+                                      reason='atmosphere:module'))
+            continue
+        bid = item[1]
+        parts, builds = [], []
+        for s in sources:
+            key = next((k for k, b in s.file.builds.items()
+                        if (b.modules.get('main') or '')[:16].upper() == bid), None)
+            builds.append(key)
+            chosen = s.choices.values if s.choices is not None else {}
+            parts.append(_Part(_lower(s.file, key, modules.get(bid), s.prefer, chosen,
+                                      _modes(s.prefer, s.prefer_cheats), limits)))
+        out.append(MergedBackFile(bid, f'{bid}.txt', atm.write_file(_assemble(parts, limits)),
+                                  [p.report for p in parts], builds))
+    return out
+
+
+@dataclass
+class _Lowered:
+    cheat: object
+    how: str = None           # 'raw' or 'core'; None for a cheat left out
+    lines: list = None
+    why: str = None
+    reason: str = None
+
+
+@dataclass
+class _Part:
+    lowered: list             # _Lowered, the master cheats first
+    report: BackReport = field(default_factory=BackReport)
+
+
+def _lower(f, build_key, module, prefer, chosen, modes, limits):
+    """Each cheat of a file as Atmosphère code lines for one build, or the reason it cannot be, the master cheats
+    first."""
+    out = []
     for c in sorted(f.cheats, key=lambda c: not c.master):
         if c.problem:
-            report.skipped.append((c.id, c.problem))
-            report.reasons[c.id] = c.problem
+            out.append(_Lowered(c, why=c.problem, reason=c.problem))
             continue
         raw = next((r for r in c.raw if r.build == build_key and r.syntax == 'atmosphere'), None)
-        raw_lines = [line.strip() for line in raw.code.strip().splitlines() if line.strip()] if raw else None
-        lines, how = None, None
+        # Words apart by plain spaces, as dmnt reads white space.
+        raw_lines = [' '.join(line.split()) for line in raw.code.strip().splitlines() if line.strip()] if raw else None
         if raw is None and not c.ops:
-            report.skipped.append((c.id, 'only raw code, for other builds'))
-            report.reasons[c.id] = 'build-unknown'
+            out.append(_Lowered(c, why='only raw code, for other builds', reason='build-unknown'))
             continue
         if raw is not None and modes.get(c.id, prefer) == 'raw':
             lines, how = raw_lines, 'raw'
         else:
             try:
                 words = _core_words(c, build_key, module, chosen)
-                if len(words) > ATM_WORDS:
-                    raise atm.Unclear(f'{len(words)} words, more than an Atmosphère entry holds',
-                                      'atmosphere:too-long')
+                if limits.words is not None and len(words) > limits.words:
+                    raise atm.Unclear(f'{len(words)} words, more than an entry holds', 'atmosphere:too-long')
                 lines, how = atm.format_words(words), 'core'
             except atm.Unclear as u:
                 if raw is None:
-                    leave_out(c, u.why, u.code or 'atmosphere:unclear')
+                    out.append(_Lowered(c, why=u.why, reason=u.code or 'atmosphere:unclear'))
                     continue
                 lines, how = raw_lines, 'raw'
-        if _word_count(lines) > ATM_WORDS:
-            leave_out(c, f'{_word_count(lines)} words, more than an Atmosphère entry holds', 'atmosphere:too-long')
+        if limits.words is not None and _word_count(lines) > limits.words:
+            out.append(_Lowered(c, why=f'{_word_count(lines)} words, more than an entry holds',
+                                reason='atmosphere:too-long'))
+            continue
+        out.append(_Lowered(c, how, lines))
+    return out
+
+
+def _after_requirements(items):
+    """The lowered cheats in file order, except that a cheat comes after those of them it requires."""
+    ids = {lo.cheat.id for lo in items}
+    done, out, todo = set(), [], list(items)
+    while todo:
+        i = next((i for i, lo in enumerate(todo) if all(r in done or r not in ids for r in lo.cheat.requires)), 0)
+        lo = todo.pop(i)
+        done.add(lo.cheat.id)
+        out.append(lo)
+    return out
+
+
+def _assemble(parts, limits):
+    """The entries of one Atmosphère file, (name, master, code lines), from the lowered cheats of one or more files.
+
+    The cheats go in the order of section 15: the master cheats into one master entry, then each file's other cheats,
+    each after the cheats it requires. A cheat that requires one left out is left out with `requires:<id>`, as the
+    reader refuses it; one past the limits with `atmosphere:too-long`, `atmosphere:too-many` or `atmosphere:too-big`.
+    A group starts with an EdiZon section marker and ends with one where another group or a cheat in no group follows.
+    """
+    left = {}
+
+    def leave_out(k, c, why, code):
+        parts[k].report.skipped.append((c.id, why))
+        parts[k].report.reasons[c.id] = code
+        left[(k, c.id)] = code
+
+    for k, part in enumerate(parts):
+        for lo in part.lowered:
+            if lo.reason:
+                leave_out(k, lo.cheat, lo.why, lo.reason)
+    order = [(k, lo) for k, p in enumerate(parts) for lo in p.lowered if lo.cheat.master and not lo.reason]
+    for k, p in enumerate(parts):
+        order += [(k, lo) for lo in _after_requirements([lo for lo in p.lowered
+                                                         if not lo.cheat.master and not lo.reason])]
+    placed, used = [], set()            # placed: (part, lowered, name)
+    master_name, master_words = None, 0
+    count, size, group = 0, 0, None     # entries with code, bytes of the text so far plus one, the open group
+    for k, lo in order:
+        c = lo.cheat
+        missing = next((r for r in c.requires if (k, r) in left), None)
+        if missing is not None:
+            leave_out(k, c, f'requires {missing}, which is left out', 'requires:' + missing)
             continue
         if c.master:
-            # Atmosphère runs one master entry: the code of every master cheat goes into it, in file order.
-            if _word_count(master_lines) + _word_count(lines) > ATM_WORDS:
-                leave_out(c, 'the master entry would hold more than 256 words', 'atmosphere:too-long')
-                continue
-            master = master or c.name
-            master_lines += lines
-            report.written.append((c.id, how))
+            # Atmosphère runs one master entry: the code of every master cheat goes into it, in order.
+            first = master_name is None
+            name = atmosphere_name(c.name, True, limits.name) if first else master_name
+            add = sum(len(line) + 1 for line in lo.lines) + (len(name.encode('utf-8')) + 4 if first else 0)
+            if limits.words is not None and master_words + _word_count(lo.lines) > limits.words:
+                leave_out(k, c, f'the master entry would hold more than {limits.words} words', 'atmosphere:too-long')
+            elif limits.size is not None and size + add - 1 > limits.size:
+                leave_out(k, c, f'the file would be more than {limits.size} bytes', 'atmosphere:too-big')
+            else:
+                master_name, master_words, size = name, master_words + _word_count(lo.lines), size + add
+                placed.append((k, lo, None))
+                parts[k].report.written.append((c.id, lo.how))
             continue
-        # A new group starts with its name as an empty entry; a group is ended by an entry with only 20000001.
         cheat_group = c.group or None
         marks = []
         if cheat_group != group:
-            marks = [(cheat_group, False, [])] if cheat_group else [(group, False, ['20000001'])]
-        if len(entries) + len(marks) + 1 > ATM_ENTRIES:
-            leave_out(c, 'more entries than an Atmosphère file holds', 'atmosphere:too-many')
+            marks = ([_section('End', group, limits.name)] if group else []) + \
+                    ([_section('Start', cheat_group, limits.name)] if cheat_group else [])
+        name = _unique(atmosphere_name(c.name, False, limits.name), used, limits.name)
+        add = sum(_entry_size(m, []) for m in marks) + _entry_size(name, lo.lines)
+        if limits.entries is not None and count + 1 > limits.entries:
+            leave_out(k, c, f'more than {limits.entries} entries', 'atmosphere:too-many')
+        elif limits.size is not None and size + add - 1 > limits.size:
+            leave_out(k, c, f'the file would be more than {limits.size} bytes', 'atmosphere:too-big')
+        else:
+            count, size, group = count + 1, size + add, cheat_group
+            used.add(name)
+            placed.append((k, lo, name))
+            parts[k].report.written.append((c.id, lo.how))
+    # A cheat placed before a cheat it requires, in a ring of requirements, goes again where that one is left out.
+    changed = True
+    while changed:
+        changed = False
+        for i, (k, lo, name) in enumerate(placed):
+            missing = next((r for r in lo.cheat.requires if (k, r) in left), None)
+            if missing is not None:
+                del placed[i]
+                parts[k].report.written.remove((lo.cheat.id, lo.how))
+                leave_out(k, lo.cheat, f'requires {missing}, which is left out', 'requires:' + missing)
+                changed = True
+                break
+    entries = []
+    masters = [lo for k, lo, name in placed if name is None]
+    if masters:
+        entries.append((master_name, True, [line for lo in masters for line in lo.lines]))
+    group = None
+    for k, lo, name in placed:
+        if name is None:
             continue
-        entries += marks
-        group = cheat_group
-        entries.append((c.name, False, lines))
-        report.written.append((c.id, how))
-    if master is not None:
-        entries.insert(0, (master, True, master_lines))
-    return f'{main_id[:16].upper()}.txt', atm.write_file(entries), report
+        cheat_group = lo.cheat.group or None
+        if cheat_group != group:
+            if group:
+                entries.append((_section('End', group, limits.name), False, []))
+            if cheat_group:
+                entries.append((_section('Start', cheat_group, limits.name), False, []))
+            group = cheat_group
+        entries.append((name, False, lo.lines))
+    return entries
 
 
 def _base(loc, build_key, module):

@@ -199,6 +199,8 @@ build = "1.0.0"                  # the build to write: one the file names, or an
 prefer = "core"                  # optional: core operations where a cheat has them (default "raw")
 values = { "speed.value" = 4.0 } # optional: values the player chose
 prefer_cheats = { money = "core" }     # optional: "raw" or "core" for single cheats
+limits = { entries = 3, size = "none" }   # optional: the host's limits, Atmosphère's where not given; "none" is no
+                                          # limit, and limits = "none" none at all (keys: entries, words, size, name)
 module_build_id = "1122334455667788"   # optional: the build ID of the module, for a build the file does not name
 
 [module]                         # optional: the main module of that build, as in a conversion case
@@ -210,6 +212,30 @@ name = "0123456789ABCDEF.txt"    # the file name
 file = "back-core.txt"           # the exact text
 written = { money = "core", loop = "raw" }          # how each cheat was written
 reasons = { once = "atmosphere:run" }               # the reason each other cheat was left out (spec, section 15)
+```
+
+With `[[source]]` tables instead of one file, a case writes several files into one file for each build. Each source has `mncf` or `text`, and optionally `prefer`, `values` and `prefer_cheats`; `build_id` picks the file that is compared, and a `[module]` is the one of `module_build_id`:
+
+```toml
+to = "atmosphere"
+build_id = "0123456789ABCDEF"
+
+[[source]]
+mncf = "shop.mncf"
+
+[[source]]
+mncf = "speed.mncf"
+prefer = "core"
+
+[expect]
+back = [                         # every file written, in order, with each source's build key ("" for none)
+  { name = "0123456789ABCDEF.txt", builds = ["1.0.0", "v1"] },
+  { reason = "atmosphere:module", builds = ["", "v3"] },
+]
+name = "0123456789ABCDEF.txt"
+file = "back-merged.txt"
+written = [{ hp = "core" }, { speed = "core" }]     # for each source
+reasons = [{}, { jump = "atmosphere:no-module" }]
 ```
 
 A conversion case of patch files (`patch-*.toml`) has `from = "patches"`, and each source is one patch file with the module it patches:

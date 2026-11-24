@@ -4,6 +4,7 @@
     python format/lib/python/tests/conformance.py --dump     # each case's results as JSON, to compare readers
 """
 import base64
+import dataclasses
 import io
 import json
 import pathlib
@@ -233,17 +234,45 @@ def case_module(m, build_id):
     return CodeModule(bytes(image), sections, build_id, m.get('text_size'), [tuple(r) for r in m.get('exclude', [])])
 
 
+def case_limits(limits):
+    """The limits of a case back to Atmosphère: Atmosphère's, "none", or a table that changes some of them, where
+    "none" is no limit."""
+    from mncf import convert
+    if limits is None:
+        return convert.ATMOSPHERE_LIMITS
+    if limits == 'none':
+        return convert.NO_LIMITS
+    return dataclasses.replace(convert.ATMOSPHERE_LIMITS, **{k: None if v == 'none' else v for k, v in limits.items()})
+
+
 def back_results(case, folder):
     """What the converter writes back to Atmosphère for one build: the file's name and text, how each cheat was
-    written, and the reason each other cheat was left out."""
+    written, and the reason each other cheat was left out. With [[source]], several files go into one file for each
+    build: `back` lists them, and the one of `build_id` is compared, with `written` and `reasons` for each source."""
     from mncf import convert
-    text = case['text'] if 'text' in case else (folder / case['mncf']).read_text(encoding='utf-8')
-    f = mncf.load(text.encode('utf-8'))
+
+    def load(t):
+        text = t['text'] if 'text' in t else (folder / t['mncf']).read_text(encoding='utf-8')
+        return mncf.load(text.encode('utf-8'))
+
+    def choices(t):
+        return mncf.Choices(values=dict(t['values'])) if 'values' in t else None
+
     module = case_module(case['module'], case.get('module_build_id')) if 'module' in case else None
-    choices = mncf.Choices(values=dict(case['values'])) if 'values' in case else None
     try:
-        name, out, report = convert.to_atmosphere(f, case['build'], module, case.get('prefer', 'raw'), choices,
-                                                  case.get('prefer_cheats'))
+        limits = case_limits(case.get('limits'))
+        if 'source' in case:
+            sources = [convert.BackSource(load(s), choices(s), s.get('prefer', 'raw'), s.get('prefer_cheats'))
+                       for s in case['source']]
+            files = convert.to_atmosphere_merged(sources, {case['module_build_id']: module} if module else None,
+                                                 limits)
+            back = [{k: v for k, v in (('name', b.name), ('reason', b.reason)) if v} |
+                    {'builds': [k or '' for k in b.builds]} for b in files]
+            b = next(b for b in files if b.build_id == case['build_id'])
+            return {'back': back, 'name': b.name, 'text': b.text, 'written': [dict(r.written) for r in b.reports],
+                    'reasons': [dict(r.reasons) for r in b.reports]}
+        name, out, report = convert.to_atmosphere(load(case), case['build'], module, case.get('prefer', 'raw'),
+                                                  choices(case), case.get('prefer_cheats'), limits)
     except ValueError as e:
         return {'error': getattr(e, 'code', 'error')}
     return {'name': name, 'text': out, 'written': dict(report.written), 'reasons': dict(report.reasons)}
@@ -299,7 +328,7 @@ def compare(expect, got, folder=None):
             problems.append(f'error: expected {expect.get("error")!r}, got {got.get("error")!r}')
         return problems
     for key, default in (('signature', 'unsigned'), ('signers', []), ('build', ''), ('warnings', []), ('name', None),
-                         ('written', {}), ('reasons', {})):
+                         ('written', {}), ('reasons', {}), ('back', [])):
         if key not in got:
             continue
         want = sorted(expect.get(key, default)) if key == 'warnings' else expect.get(key, default)
