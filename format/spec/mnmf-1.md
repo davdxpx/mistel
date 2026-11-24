@@ -472,9 +472,9 @@ values = { "fps-60.target" = 60 }
 
 ### 12.1 Load patches
 
-Many code mods change code that runs only while the game starts, before a runtime's first pass. So a cheat of a part that only patches and overrides, runs `"on"`, and has no `hold`, `toggle`, `when` or `interval`, is a **load patch**:
+Many code mods change code that runs only while the game starts, before a runtime's first pass. So a cheat of a part is a **load patch** when it runs `"on"`, has no `hold`, `toggle`, `when` or `interval`, and does its work only through patches, overrides, and writes that have an `expect` and a place in a module without a pointer path (bytes in a module's data, as a patch file changes them):
 
-- The runtime applies it while the game loads, before the game's first instruction runs, and it stays applied until the game ends. Its locations are resolved, and its `expect` checked, against the original code module.
+- The runtime applies it while the game loads, before the game's first instruction runs, and it stays applied until the game ends. Its locations are resolved, and its `expect` checked, against the original code module. Its writes happen once, at that moment, and are not repeated in passes: they change the module's data as it is loaded.
 - A runtime that changes the original code for its own reasons (`mncf/1` section 11.3) applies load patches before it does, so that they meet the original bytes, as a patch applied by the loader does.
 - A runtime that cannot change code before the game's first instruction refuses the part with `capability-missing:code-load`.
 - Values the player sets for a load patch take effect at the next start.
@@ -725,10 +725,10 @@ A converter MAY ask the person who converts where these rules leave a doubt, and
 
 ### 20.3 Code patches
 
-With the game's code module at hand, which gives each patch its original bytes for `expect`, code patches become `.mncf` files, one for each patch set, with a build for each build ID the patches name, each in an optional part that is on at first. They are load patches (section 12.1). Where `mncf/1` section 15 allows it, the converter makes patterns of them, so that they also work on later builds.
+With the game's code module at hand, which gives each patch its original bytes for `expect`, code patches become `.mncf` files as `mncf/1` section 15 says for patch files (IPS, IPS32 and pchtxt): one `.mncf` file for each patch set, with a build for each build ID the patches name, and patterns where that section allows them, so that the patches also work on later builds. The cheats are load patches (section 12.1).
 
-- IPS offsets count from the start of the module file's header, 0x100 bytes before the module's first byte, as Atmosphère applies them. Each record becomes a patch at its module offset.
-- In a pchtxt file, `@flag offset_shift` gives the offset to subtract. Each section from `@enabled` or `@disabled` up to `@stop` becomes one cheat, named by the comment line before it, and one optional part that switches it on, with `default = true` where the section starts with `@enabled`.
+- An IPS or IPS32 patch set becomes one cheat, `default = true`, in an optional part that is on at first.
+- Each patch of a pchtxt file becomes one cheat and one optional part that switches it on, on at first where the patch is `@enabled`.
 - Without the module, a converter cannot give `expect`, which a patch in an `.mncf` file needs (`mncf/1` section 7.4). It then keeps each patch file as it is, as a row of the `exefs-patch` target, in an optional part that is on at first, and names the files in its report.
 
 ### 20.4 What else a converter writes
