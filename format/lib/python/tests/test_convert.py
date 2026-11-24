@@ -10,7 +10,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import conformance  # noqa: E402
 import synthetic as syn  # noqa: E402
 import mncf  # noqa: E402
-from mncf import arm64, atmosphere as atm, convert, disasm, lz4, write  # noqa: E402
+from mncf import arm64, atmosphere as atm, convert, disasm, lz4, patches, write  # noqa: E402
 from mncf.module import CodeModule, module_from_bytes, parse_nso, read_runs  # noqa: E402
 from mncf.pattern import make_pattern  # noqa: E402
 
@@ -465,6 +465,136 @@ made for 1.0.0
         self.assertEqual(reasons['speed'], 'runtime:unsupported:run.action')
         self.assertEqual(reasons['money'], 'runtime:rewritten')
         self.assertEqual(reasons['heap-value'], '')
+
+
+def ips(records, ips32=False, tail=b''):
+    width = 4 if ips32 else 3
+    out = b'IPS32' if ips32 else b'PATCH'
+    for off, data in records:
+        if isinstance(data, tuple):                     # a run: (count, byte)
+            out += off.to_bytes(width, 'big') + b'\0\0' + data[0].to_bytes(2, 'big') + bytes([data[1]])
+        else:
+            out += off.to_bytes(width, 'big') + len(data).to_bytes(2, 'big') + data
+    return out + (b'EEOF' if ips32 else b'EOF') + tail
+
+
+class PatchFilesTest(unittest.TestCase):
+    """IPS, IPS32 and IPSwitch files of a code module."""
+
+    def test_ips(self):
+        f = patches.read(ips([(0x1108, bytes.fromhex('691200B9')), (0x1200, (3, 0xAA)), (0x1300, (0, 1))],
+                             tail=b'\x00\x10\x00'))
+        self.assertEqual((f.format, f.patches[0].enabled), ('ips', True))
+        self.assertEqual(f.patches[0].records, [(0x1108, bytes.fromhex('691200B9')), (0x1200, b'\xAA' * 3)])
+        f = patches.read(ips([(0x1000000, b'\x01')], ips32=True))
+        self.assertEqual((f.format, f.patches[0].records), ('ips32', [(0x1000000, b'\x01')]))
+        for bad in (b'PATCH', b'PATCH\x00\x10\x00\x00\x04\x01\x02', b'IPS32\x00\x00\x00\x10\x00\x00\x00', b'NOPE!'):
+            with self.assertRaises(patches.PatchFileError, msg=bad):
+                patches.read_ips(bad)
+        with self.assertRaises(patches.PatchFileError):
+            patches.read(b'\xff\xfe not text')
+
+    def test_pchtxt(self):
+        text = (
+            '@nsobid-0123456789abcdef00000000\n'
+            '// Patches by Ann\n'
+            '// First\n'
+            '@enabled\n'
+            '00001008 691200B9 // str w9: this comment names nothing\n'
+            '00001010 "a\\"b // c\\n" // a string with a quote, slashes and a new line\n'
+            '@flag offset_shift 0x100\n'
+            '// Second\n'
+            '@disabled\n'
+            '@little-endian\n'
+            '00001010 B9402100\n'
+            'nonsense\n'
+            '#forced\n'
+            '@stop\n'
+            '@enabled\n'
+            '00000000 00\n')
+        f = patches.read(text.encode())
+        self.assertEqual((f.format, f.build_id), ('pchtxt', '0123456789ABCDEF'))
+        self.assertEqual([(p.name, p.enabled) for p in f.patches], [('First', True), ('Second', False)])
+        self.assertEqual(f.patches[0].records, [(0x1008, bytes.fromhex('691200B9')), (0x1010, b'a"b // c\n')])
+        self.assertEqual(f.patches[1].records, [(0x1110, bytes.fromhex('002140B9'))])
+        self.assertEqual([t for _, t in f.notes], ['nonsense', 'forced'])
+        self.assertIn('Patches by Ann', [t for _, t in f.comments])
+        with self.assertRaises(patches.PatchFileError):
+            patches.read_pchtxt('@nsobid-XYZ\n')
+
+    def test_build_ids_and_runs(self):
+        self.assertEqual(patches.build_id_of('exefs_patches/x/0123456789ABCDEF0000000000000000.ips'), '0123456789ABCDEF')
+        self.assertEqual(patches.build_id_of('0123456789abcdef1200.IPS32'), '0123456789ABCDEF12')
+        self.assertIsNone(patches.build_id_of('main.ips'))
+        self.assertIsNone(patches.build_id_of('0123456789ABCDEF0.ips'))
+        p = patches.Patch('', True, [(0xF8, bytes(12)), (0x108, b'\x01\x02'), (0x109, b'\x03'), (0x200, b'\x04\x05\x06')])
+        runs, dropped = patches.image_runs(p, 0x102)
+        self.assertEqual(runs, [(0, bytes(4)), (8, b'\x01\x03'), (0x100, b'\x04\x05')])
+        self.assertEqual(dropped, ['0xF8: 8 bytes in the NSO header', '0x200: 1 byte past the module'])
+        self.assertEqual([convert._set_name(n) for n in ('atmosphere/exefs_patches/60fps/0123456789ABCDEF.ips',
+                                                         'load/0100000000ABC000/My mod/exefs/a.pchtxt',
+                                                         'atmosphere/contents/0100000000ABC000/exefs/b.pchtxt',
+                                                         '0123456789ABCDEF.ips', None)],
+                         ['60fps', 'My mod', 'b', 'Patch', 'Patch'])
+
+    def test_convert(self):
+        mod = module()
+        data = ips([(0x1108, bytes.fromhex('691200B9'))])
+        with self.assertRaises(convert.ConvertError):
+            convert.from_patches(convert.PatchSource(data, None, file_name=f'{syn.BUILD_ID}.ips'), game_id=syn.GAME_ID)
+        with self.assertRaises(convert.ConvertError):
+            convert.from_patches(convert.PatchSource(data, CodeModule(mod.image, mod.sections)), game_id=syn.GAME_ID)
+        with self.assertRaises(convert.ConvertError):        # nothing of it lands in the module
+            convert.from_patches(convert.PatchSource(ips([(0x10, b'\x01')]), mod), game_id=syn.GAME_ID)
+        conv = convert.from_patches(
+            convert.PatchSource(data, mod, file_name=f'atmosphere/exefs_patches/Faster/{syn.BUILD_ID}.ips'),
+            game_id=syn.GAME_ID, origin='faster.zip')
+        f = mncf.load(conv.text.encode())
+        self.assertEqual((f.cheats[0].id, f.cheats[0].default, f.origin), ('faster', True,
+                                                                           {'format': 'ips', 'name': 'faster.zip'}))
+        self.assertEqual(f.builds['0123456789ABCDEF'].modules, {'main': '0123456789ABCDEF'})
+        rt = mncf.Runtime('switch', modules={'main': mod.reader_module(0x8000000)})
+        ev = mncf.evaluate(f, rt)
+        self.assertEqual(ev.cheats[0].state, 'on')
+        self.assertEqual(ev.cheats[0].ops[0].address, 0x8000000 + syn.STR_W8)
+        # A module whose build ID differs from the file's is named in a warning; the file's ID names the build.
+        other = convert.from_patches(convert.PatchSource(data, mod, file_name='1122334455667788.ips'),
+                                     game_id=syn.GAME_ID)
+        self.assertEqual(other.report.warnings, ['the module of build 1122334455667788 is '
+                                                 f'{mod.build_id.upper()}, its patch file 1122334455667788'])
+
+    def test_several_builds_and_modules(self):
+        mod = module()
+        a = convert.PatchSource(ips([(0x1108, bytes.fromhex('691200B9'))]), mod, file_name=f'{syn.BUILD_ID}.ips',
+                                set_name='Faster', version='1.0.0')
+        b = convert.PatchSource(ips([(0x1108, bytes.fromhex('691200B9'))]), mod, file_name='0F0E0D0C0B0A0908.ips',
+                                set_name='Sub', version='1.0.0', module_name='subsdk0')
+        c = convert.PatchSource(ips([(0x1108, bytes.fromhex('691200B9'))]), mod, file_name='1122334455667788.ips',
+                                set_name='Faster', version='1.0.0')
+        f = mncf.load(convert.from_patches([a, b], game_id=syn.GAME_ID).text.encode())
+        self.assertEqual(f.builds['1.0.0'].modules, {'main': syn.BUILD_ID, 'subsdk0': '0F0E0D0C0B0A0908'})
+        self.assertEqual([c.ops[0].at.module for c in f.cheats], ['main', 'subsdk0'])
+        f = mncf.load(convert.from_patches([a, c], game_id=syn.GAME_ID).text.encode())   # one version, two builds
+        self.assertEqual(sorted(f.builds), [syn.BUILD_ID, '1122334455667788'])
+        self.assertEqual(len(f.cheats), 1)
+        same_key = convert.PatchSource(a.data, mod, file_name='1122334455667788.ips', build_key='1.0.0')
+        with self.assertRaises(convert.ConvertError):                    # one build, two IDs for main
+            convert.from_patches([a, same_key], game_id=syn.GAME_ID)
+
+    def test_values_and_data(self):
+        mod = module()
+        fmov = ips([(0x1900, bytes.fromhex('0010201E')), (0x3110, b'\x07')])     # fmov s0, #2.0; a data byte
+        conv = convert.from_patches(convert.PatchSource(fmov, mod, file_name=f'{syn.BUILD_ID}.ips', set_name='S'),
+                                    game_id=syn.GAME_ID)
+        f = mncf.load(conv.text.encode())
+        c = f.cheats[0]
+        self.assertEqual((c.values['value'].type, c.values['value'].default), ('f32', 2.0))
+        self.assertEqual((type(c.ops[1]).__name__, c.ops[1].type, c.ops[1].value, c.ops[1].expect),
+                         ('Write', 'bytes', b'\x07', b'\x00'))
+        plain = convert.from_patches(convert.PatchSource(fmov, mod, file_name=f'{syn.BUILD_ID}.ips', set_name='S'),
+                                     game_id=syn.GAME_ID, values=False)
+        self.assertNotIn('encode', plain.text)
+        self.assertNotIn('extensions', plain.text)
 
 
 class WriteTest(unittest.TestCase):

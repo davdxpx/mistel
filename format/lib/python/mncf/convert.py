@@ -13,7 +13,7 @@ import re
 
 from dataclasses import dataclass, field
 
-from . import arm64, atmosphere as atm, disasm
+from . import arm64, atmosphere as atm, disasm, patches as patches_mod
 from . import encode as enc
 from .model import Condition, Override, Patch, Read, ValueRef, Write
 from .pattern import make_pattern
@@ -22,8 +22,8 @@ from .evaluate import Choices, _Refused, _value
 from .write import dumps
 
 RESTORE_NAME = re.compile(r'\b(restore|restores|original|vanilla)\b|\boff\W*\Z', re.I | re.A)
-CREDIT_NAME = re.compile(r'credit|made by|created by|written by|cheats? by|codes? by|thanks|www\.|https?:|'
-                         r'\.com\b|\.org\b|\.net\b|discord|patreon|\bTID\s*=|\bBID\s*=', re.I | re.A)
+CREDIT_NAME = re.compile(r'credit|made by|created by|written by|cheats? by|codes? by|patch(?:es)? by|thanks|www\.|'
+                         r'https?:|\.com\b|\.org\b|\.net\b|discord|patreon|\bTID\s*=|\bBID\s*=', re.I | re.A)
 LINK = re.compile(r'www\.|https?:|\.com\b|\.org\b|\.net\b', re.I | re.A)
 AUTHOR = re.compile(r'\bby\s+(.+)|\bcredits?\s*[:=]\s*(.+)', re.I | re.A)
 PLATFORM = re.compile(r'^(.+?)\s*(?:\s(?:on|at|from)\s|@|\()\s*(.+?)\)?\Z', re.I | re.A)
@@ -423,28 +423,28 @@ def _core(c, d, module, originals, asm, values):
                                   'value': cond.value}))
 
 
-def _patch(c, off, data, expect, module, asm, values):
+def _patch(c, off, data, expect, module, asm, values, name='main'):
     rep, key = c.rep, c.key
     loc = None
     if module is not None:
         if module.excluded(off, len(data)):
-            rep.notes.append(f'main+0x{off:X}: the module\'s bytes there are not its own, so no pattern')
+            rep.notes.append(f'{name}+0x{off:X}: the module\'s bytes there are not its own, so no pattern')
         elif arm64.relative_outside(data, off, len(data)):
-            rep.notes.append(f'main+0x{off:X}: the new code branches or refers outside itself, so it fits this '
+            rep.notes.append(f'{name}+0x{off:X}: the new code branches or refers outside itself, so it fits this '
                              'build only')
         elif module.text_size is not None and off >= module.text_size and module.section_of(off) == 'code':
-            rep.notes.append(f'main+0x{off:X}: code written after the end of the code, kept for this build')
+            rep.notes.append(f'{name}+0x{off:X}: code written after the end of the code, kept for this build')
         else:
             p = make_pattern(module, off, cover=min(4, len(data)))
             if p is None:
-                rep.notes.append(f'main+0x{off:X}: no unique pattern of up to 64 bytes')
+                rep.notes.append(f'{name}+0x{off:X}: no unique pattern of up to 64 bytes')
             else:
-                loc = p.location('main')
+                loc = p.location(name)
                 if arm64.moving_bytes(module.image, off, off + len(expect)):
-                    rep.notes.append(f'main+0x{off:X}: the original code refers to another place, so `expect` fits '
+                    rep.notes.append(f'{name}+0x{off:X}: the original code refers to another place, so `expect` fits '
                                      'this build only')
     if loc is None:
-        loc = {'module': 'main', 'offsets': {key: off}}
+        loc = {'module': name, 'offsets': {key: off}}
         rep.fixed += 1
     else:
         rep.patterns += 1
@@ -597,6 +597,212 @@ def from_atmosphere(sources, *, game_id, platform='switch', game_name=None, name
         doc['origin']['site'] = site
     exts = ['raw/1'] + (['arm64-imm/1'] if any(c.get('values') for c in cheats) else [])
     doc['extensions'] = {'optional': exts}
+    doc['game'] = {'platform': platform, 'id': game_id.upper()}
+    if game_name:
+        doc['game']['name'] = game_name
+    doc['builds'] = builds
+    doc['cheat'] = cheats
+    return Conversion(doc, dumps(doc), report)
+
+
+# ---- patch files: IPS, IPS32, IPSwitch ------------------------------------------------------------------------------
+
+@dataclass
+class PatchSource:
+    """One patch file of a code module: its bytes, the module it patches, and what else is known.
+
+    A patch needs `expect`, which a patch file does not hold, so the module is required: the original bytes come from
+    it. The build ID comes from the file itself (`@nsobid-`), else from its name (`<build ID>.ips`), else from
+    `build_id`, else from the module.
+    """
+    data: bytes
+    module: object = None      # the module.CodeModule it patches
+    file_name: str = None      # the file's name, such as `<build ID>.ips`
+    set_name: str = None       # the patch set: its folder in exefs_patches/, or the mod's name
+    module_name: str = 'main'  # main, sdk or subsdk0 to subsdk9
+    build_id: str = None
+    version: str = None
+    build_key: str = None
+
+
+class _PatchItem:
+    """What the several-builds merge needs of a cheat's source entry."""
+    master = False
+
+    def __init__(self, name, group):
+        self.name, self.group = name, group
+
+
+def _set_name(file_name):
+    """The patch set a file belongs to, from its path: the folder it is in (`exefs_patches/<set>/<build ID>.ips`, or a
+    mod's folder above `exefs/`), else its own name where that is no build ID, else "Patch"."""
+    parts = [p for p in (file_name or '').replace('\\', '/').split('/') if p]
+    if not parts:
+        return 'Patch'
+    for folder in reversed(parts[:-1]):
+        if folder.lower() not in ('exefs', 'exefs_patches', 'atmosphere', 'contents') and \
+                not re.match(r'^[0-9A-Fa-f]{16}\Z', folder):
+            return folder
+    stem = parts[-1].rsplit('.', 1)[0]
+    return 'Patch' if patches_mod.build_id_of(parts[-1]) else stem
+
+
+def _patch_cheat(item, key, rep, runs, module, mname, asm, values):
+    c = _Cheat.__new__(_Cheat)
+    c.item, c.key, c.rep = item, key, rep
+    c.hold = c.press = None
+    c.needs_master = False
+    c.ops, c.values, c.raw = [], {}, None
+    for off, data in runs:
+        pieces, at = [], off
+        while at < off + len(data):                   # one run for each section it crosses
+            sec = module.section_of(at)
+            stop = min(off + len(data), module.sections[sec][1] if sec else at + 1)
+            pieces.append((sec, at, data[at - off:stop - off]))
+            at = stop
+        for sec, at, piece in pieces:
+            if sec is None:
+                raise atm.Unclear(f'{mname}+0x{at:X} is in no section of the module')
+            if module.excluded(at, len(piece)):
+                raise atm.Unclear(f'{mname}+0x{at:X}: the module\'s bytes there are not its own, so there is no '
+                                  '`expect`')
+            expect = module.image[at:at + len(piece)]
+            if expect == piece:
+                rep.notes.append(f'{mname}+0x{at:X} already holds those bytes; the patch stays, as the source '
+                                 'writes them')
+            if sec == 'data':
+                c.ops.append(('write', {'at': {'module': mname, 'offsets': {key: at}}, 'type': 'bytes',
+                                        'value': hex_bytes(piece), 'expect': hex_bytes(expect)}))
+                rep.fixed += 1
+            else:
+                c.ops.append(('patch', _patch(c, at, piece, expect, module, asm, values, mname)))
+    return c
+
+
+def from_patches(sources, *, game_id, platform='switch', game_name=None, name=None, origin=None, authors=None,
+                 asm=True, values=True):
+    """A Conversion of patch files (IPS, IPS32 or IPSwitch text) of the same game, for one or more builds.
+
+    Each IPS file becomes one cheat, named by its patch set, that is on by default, as a loader applies it whenever
+    it is there. Each patch of an IPSwitch file becomes one cheat, named by its comment, on by default where it is
+    `@enabled`. A write into code or read-only data becomes a patch, one into data a write that is made only while
+    the place holds its original bytes, as a loader sets them only once.
+    """
+    if isinstance(sources, PatchSource):
+        sources = [sources]
+    report = Report()
+    builds, per_source, formats = {}, [], []
+    read = []
+    for src in sources:
+        f = patches_mod.read(src.data)
+        formats.append(f.format)
+        bid = f.build_id or (patches_mod.build_id_of(src.file_name) if src.file_name else None) or \
+            (patches_mod.trim_build_id(src.build_id) if src.build_id else None) or \
+            (patches_mod.trim_build_id(src.module.build_id) if src.module is not None and src.module.build_id
+             else None)
+        if src.module is None:
+            raise ConvertError(f'{src.file_name or "a patch file"}: a patch needs the module it patches, for `expect`')
+        if bid is None:
+            raise ConvertError(f'{src.file_name or "a patch file"}: no build ID in the file, its name or the module')
+        read.append((src, f, bid))
+    versions = {}
+    for src, _, bid in read:
+        if src.version:
+            versions.setdefault((src.version, src.module_name), set()).add(bid)
+    for src, f, bid in read:
+        shared = src.version is not None and len(versions[(src.version, src.module_name)]) > 1
+        key = src.build_key or (bid if shared else src.version) or bid
+        mid = src.module.build_id
+        if mid and not (mid.upper().startswith(bid) or bid.startswith(mid.upper())):
+            report.warnings.append(f'the module of build {key} is {mid.upper()}, its patch file {bid}')
+        build = builds.setdefault(key, {'version': src.version} if src.version and src.version != key else {})
+        mods = build.setdefault('modules', {})
+        if mods.get(src.module_name, bid) != bid:
+            raise ConvertError(f'build {key!r} has two build IDs for {src.module_name}')
+        mods[src.module_name] = bid
+        set_name = src.set_name or _set_name(src.file_name)
+        for n, line in f.notes:
+            if line not in report.notes:
+                report.notes.append(line)
+        for n, line in f.comments:
+            if CREDIT_NAME.search(line) and line not in report.credits:
+                report.credits.append(line)
+        group = set_name if len(f.patches) > 1 else None
+        out = []
+        for i, p in enumerate(f.patches, 1):
+            title = p.name or (set_name if len(f.patches) == 1 else f'{set_name} {i}')
+            rep = CheatReport('', title, key, 'pattern')
+            runs, dropped = patches_mod.image_runs(p, len(src.module.image))
+            rep.notes += [f'left out {d}' for d in dropped]
+            try:
+                if not runs:
+                    raise atm.Unclear('it writes nothing into the module')
+                c = _patch_cheat(_PatchItem(title, group), key, rep, runs, src.module, src.module_name, asm, values)
+            except atm.Unclear as u:
+                rep.outcome, rep.why = 'unreadable', u.why
+                report.unreadable.append(f'{title} ({u.why})')
+                report.cheats.append(rep)
+                continue
+            c.default = p.enabled
+            rep.outcome = 'pattern' if rep.patterns and not rep.fixed else 'build'
+            out.append(c)
+            report.cheats.append(rep)
+        per_source.append(out)
+
+    merged, by_name = [], {}
+    for cheats in per_source:
+        for c in cheats:
+            target = next((g for g in by_name.get(c.item.name, []) if c.key not in {x.key for x in g}
+                           and _mergeable(g[0], c) and g[0].default == c.default
+                           and g[0].item.group == c.item.group), None)
+            if target is None:
+                target = [c]
+                merged.append(target)
+                by_name.setdefault(c.item.name, []).append(target)
+            else:
+                target.append(c)
+    taken, cheats = set(), []
+    for g in merged:
+        first = g[0]
+        cid = slug(first.item.name, taken)
+        for c in g:
+            c.rep.id = cid
+            if c is not first:
+                _merge_into(first, c)
+        t = {'id': cid, 'name': first.item.name}
+        if first.item.group:
+            t['group'] = first.item.group
+        if first.default:
+            t['default'] = True
+        if first.values:
+            t['values'] = dict(first.values)
+        for kind, table in first.ops:
+            t.setdefault(kind, []).append(table)
+        cheats.append(t)
+    if not cheats:
+        raise ConvertError('no patch of the files could be converted: ' + '; '.join(report.unreadable or ['none']))
+
+    doc = {'format': 'mncf/1', 'name': name or (f'{game_name} patches' if game_name else 'Converted patches')}
+    found = authors_of(report.credits)
+    if found or authors:
+        doc['authors'] = found or list(authors)
+    about = []
+    if report.credits:
+        about.append('Credits in the source: ' + '; '.join(report.credits))
+    if report.notes:
+        about.append('Lines in the source that are not patches: ' + '; '.join(report.notes))
+    if report.unreadable:
+        about.append('Patches that could not be converted, left out: ' + '; '.join(report.unreadable))
+    if about:
+        doc['about'] = '\n'.join(about)
+    doc['origin'] = {'format': 'ips' if formats[0] == 'ips32' else formats[0]}
+    if origin:
+        doc['origin']['name'] = origin
+    site = site_of(report.credits)
+    if site:
+        doc['origin']['site'] = site
+    if any(c.get('values') for c in cheats):
+        doc['extensions'] = {'optional': ['arm64-imm/1']}
     doc['game'] = {'platform': platform, 'id': game_id.upper()}
     if game_name:
         doc['game']['name'] = game_name
@@ -853,5 +1059,6 @@ def _effect(entry):
     return d.keys, cond, d.released is not None, written
 
 
-__all__ = ['Source', 'ConvertError', 'Conversion', 'Report', 'CheatReport', 'BackReport', 'BackFile', 'from_atmosphere',
-           'to_atmosphere', 'to_atmosphere_all', 'compare', 'authors_of', 'slug']
+__all__ = ['Source', 'PatchSource', 'ConvertError', 'Conversion', 'Report', 'CheatReport', 'BackReport',
+           'BackFile', 'from_atmosphere', 'from_patches', 'to_atmosphere', 'to_atmosphere_all', 'compare',
+           'authors_of', 'slug']

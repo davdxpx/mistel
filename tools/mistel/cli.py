@@ -6,7 +6,7 @@ import sys
 
 import mncf
 
-from mncf import atmosphere, convert, disasm
+from mncf import atmosphere, convert, disasm, patches
 from mncf.module import ModuleError, module_from_bytes, read_runs
 from mncf.pattern import make_pattern
 
@@ -64,10 +64,15 @@ def _pairs(values, what):
     return out
 
 
+PATCH_FILES = ('.ips', '.ips32', '.pchtxt')
+
+
 def cmd_convert(args):
     inputs = [pathlib.Path(p) for p in args.input]
     if any(p.suffix == '.mncf' for p in inputs) or args.to == 'atmosphere':
         return _back(args, inputs)
+    if all(p.suffix.lower() in PATCH_FILES for p in inputs):
+        return _patch_files(args, inputs)
     versions = _pairs(args.version, '--version')
     modules = {}
     for path in args.module or []:
@@ -116,6 +121,63 @@ def cmd_convert(args):
               "pattern")
     elif not disasm.available() and not args.no_asm:
         print('Capstone is not installed, so the patches have no asm (pip install capstone)')
+    return 0
+
+
+def _patch_files(args, inputs):
+    """IPS, IPS32 and IPSwitch files to .mncf, each with the module of its build ID."""
+    versions = _pairs(args.version, '--version')
+    modules = []
+    for text in args.module or []:
+        name, path = module_arg(text)
+        m = load_module(path)
+        if args.exclude:
+            m.exclude = read_runs(pathlib.Path(args.exclude).read_text(encoding='utf-8'))
+        modules.append((name, m))
+    if not modules:
+        raise ValueError('patch files need --module: the module they patch gives `expect`')
+    sources, game_id = [], args.game
+    for p in inputs:
+        data = p.read_bytes()
+        bid = patches.read(data).build_id or patches.build_id_of(p.name) or \
+            (args.build_id.upper() if args.build_id and len(inputs) == 1 else None)
+        fits = [(n, m) for n, m in modules if bid and m.build_id and
+                (m.build_id.upper().startswith(bid) or bid.startswith(m.build_id.upper()))]
+        if not fits and len(modules) == 1:
+            fits = modules
+        if not fits:
+            raise ValueError(f'{p.name}: no --module has the build ID {bid}')
+        name, module = fits[0]
+        game_id = game_id or _ids(p)[1]
+        in_set = p.parent.parent.name.lower() == 'exefs_patches'
+        sources.append(convert.PatchSource(
+            data, module, file_name=p.name, set_name=args.set or (p.parent.name if in_set else None),
+            module_name=name, build_id=bid,
+            version=next((v for k, v in versions.items() if bid and bid.startswith(k)), None)))
+    if not game_id:
+        raise ValueError('give --game where the path does not say the title ID')
+    origin = args.origin or (inputs[0].name if len(inputs) == 1 else None)
+    conv = convert.from_patches(sources, game_id=game_id, game_name=args.game_name, name=args.name, origin=origin,
+                                authors=args.author, asm=not args.no_asm, values=not args.no_values)
+    mncf.load(conv.text.encode())
+    out = pathlib.Path(args.output) if args.output else inputs[0].with_suffix('.mncf')
+    out.write_text(conv.text, encoding='utf-8', newline='\n')
+    r = conv.report
+    print(f'wrote {out}')
+    print(f'{len(r.cheats)} patches: {r.count("pattern")} with patterns, {r.count("build")} with offsets for their '
+          f'build, {r.count("unreadable")} left out; {sum(c.values for c in r.cheats)} values')
+    for line in r.notes:
+        print(f'not a patch, kept in about: {line}')
+    for c in r.cheats:
+        if c.outcome == 'unreadable':
+            print(f'left out {c.name}: {c.why}')
+        elif args.verbose:
+            print(f'  {c.outcome:8} {c.id} ({c.build})')
+        if args.verbose:
+            for note in c.notes:
+                print(f'           {note}')
+    for w in r.warnings:
+        print(f'warning: {w}')
     return 0
 
 
@@ -196,9 +258,12 @@ def parser():
     c.set_defaults(run=cmd_check)
 
     v = sub.add_parser('convert', help='Atmosphère cheats to .mncf, or .mncf to Atmosphère for one build')
-    v.add_argument('input', nargs='+', help='Atmosphère files <build ID>.txt, one per build; or one .mncf file')
+    v.add_argument('input', nargs='+', help='Atmosphère files <build ID>.txt, one per build; IPS, IPS32 or '
+                                            'IPSwitch patch files (.ips, .ips32, .pchtxt); or one .mncf file')
     v.add_argument('-o', '--output')
-    v.add_argument('--module', action='append', help='a main NSO; it serves the cheat file of its own build')
+    v.add_argument('--module', action='append', help='a main NSO; it serves the cheat file of its own build. For '
+                                                     'patch files: PATH or NAME=PATH, such as subsdk0=PATH')
+    v.add_argument('--set', help='patch files: the name of their cheat (default: the folder in exefs_patches/)')
     v.add_argument('--exclude', help='runs of the module whose bytes are not its own: lines of a hexadecimal offset '
                                      'and length separated by a tab')
     v.add_argument('--to', choices=('mncf', 'atmosphere'))

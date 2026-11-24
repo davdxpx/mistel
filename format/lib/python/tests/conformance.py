@@ -251,16 +251,24 @@ def convert_results(case, folder):
     from mncf import convert
     if case.get('to') == 'atmosphere':
         return back_results(case, folder)
+    patches = case.get('from', 'atmosphere') == 'patches'
     sources = []
     for src in case['source']:
-        module = case_module(src['module'], src['build_id']) if 'module' in src else None
-        sources.append(convert.Source(src['build_id'], src['text'], version=src.get('version'), module=module,
-                                      build_key=src.get('build_key')))
+        module = case_module(src['module'], src.get('build_id')) if 'module' in src else None
+        if patches:
+            data = bytes.fromhex(src['hex']) if 'hex' in src else src['text'].encode('utf-8')
+            sources.append(convert.PatchSource(data, module, file_name=src.get('file_name'), set_name=src.get('set'),
+                                               module_name=src.get('module_name', 'main'),
+                                               build_id=src.get('build_id'), version=src.get('version'),
+                                               build_key=src.get('build_key')))
+        else:
+            sources.append(convert.Source(src['build_id'], src['text'], version=src.get('version'), module=module,
+                                          build_key=src.get('build_key')))
     try:
-        conv = convert.from_atmosphere(sources, game_id=case['game'], platform=case.get('platform', 'switch'),
-                                       game_name=case.get('game_name'), name=case.get('name'),
-                                       origin=case.get('origin'), authors=case.get('authors'), asm=False,
-                                       values=case.get('values', True))
+        conv = (convert.from_patches if patches else convert.from_atmosphere)(
+            sources, game_id=case['game'], platform=case.get('platform', 'switch'), game_name=case.get('game_name'),
+            name=case.get('name'), origin=case.get('origin'), authors=case.get('authors'), asm=False,
+            values=case.get('values', True))
     except ValueError as e:
         return {'error': getattr(e, 'code', 'error')}
     return {'text': conv.text}

@@ -211,6 +211,29 @@ written = { money = "core", loop = "raw" }          # how each cheat was written
 reasons = { once = "atmosphere:run" }               # the reason each other cheat was left out (spec, section 15)
 ```
 
+A conversion case of patch files (`patch-*.toml`) has `from = "patches"`, and each source is one patch file with the module it patches:
+
+```toml
+from = "patches"
+game = "0100000000ABC000"
+
+[[source]]
+file_name = "0123456789ABCDEF.ips"   # optional: the file's name, which can give the build ID
+set = "Faster"                 # optional: the patch set, which names an IPS file's cheat
+module_name = "main"           # optional: the module it patches (default main)
+build_id = "0123456789ABCDEF"  # optional: where neither the file nor its name gives it
+version = "1.0.0"
+hex = "50 41 54 43 48 ..."     # the bytes of an IPS or IPS32 file; or text = '''...''' for IPSwitch text
+
+  [source.module]              # as above; without it, the conversion fails with "source"
+  size = 0x3800
+  code = [0x0, 0x2000]
+
+[expect]
+file = "patch-ips.mncf"
+# or error = "patch" (a file that is no patch file) or "source"
+```
+
 ## Signed cases
 
 `sign.py` signs `cases/signed.mncf` and `packs/files/pack.toml` into the `signed-*.mncf` and `pack-signed*.toml` files, some of them changed after signing on purpose. It signs with the keys of RFC 8032, section 7.1, tests 1 and 2. Those keys are public test data: anyone can sign with them, so they prove nothing outside this suite.

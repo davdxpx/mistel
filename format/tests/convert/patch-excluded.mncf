@@ -1,0 +1,22 @@
+format = "mncf/1"
+name = "Converted patches"
+about = "Patches that could not be converted, left out: Over rewritten code (main+0x1010: the module's bytes there are not its own, so there is no `expect`)"
+origin = { format = "pchtxt" }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds.0123456789ABCDEF]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "kept"
+name = "Kept"
+group = "Pack"
+default = true
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"

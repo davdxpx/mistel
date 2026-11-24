@@ -1,0 +1,48 @@
+format = "mncf/1"
+name = "Example Quest patches"
+authors = ["Ann (example forum)"]
+about = """
+Credits in the source: Patches by Ann (example forum)
+Lines in the source that are not patches: Made for 1.0.0; this line is no patch\
+"""
+origin = { format = "pchtxt" }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+name = "Example Quest"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "store-more"
+name = "Store more"
+group = "Example pack"
+default = true
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
+
+[[cheat]]
+id = "mistel-title"
+name = "Mistel title"
+group = "Example pack"
+
+  [[cheat.patch]]
+  at = { module = "main", find = "45 78 61 6D" }
+  expect = "45 78 61 6D 70 6C 65"
+  bytes = "4D 69 73 74 65 6C 00"
+
+[[cheat]]
+id = "little-end"
+name = "Little end"
+group = "Example pack"
+default = true
+
+  [[cheat.patch]]
+  at = { module = "main", find = "68 12 00 B9 ?? ?? ?? 94 ?? ?? ?? ?? 00 ?? ?? B9", offset = 0x8 }
+  expect = "08 00 00 90"
+  bytes = "00 21 40 B9"

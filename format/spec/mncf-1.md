@@ -69,7 +69,7 @@ The cheat finds its place by a byte pattern, so it works on both builds and on a
 | `about` | string | no | A description of the file, credits |
 | `file_version` | string | no | The authors' own version of this file, so a runtime can say that a newer one was imported |
 | `language` | string | no | The language of the file's plain strings, a BCP 47 tag. Default `"en"` |
-| `origin` | inline table | no | Where the file's cheats came from when a program converted them: `format`, the source's format (`"atmosphere"`, or a name starting with `x-`); `name`, the name of the source as the player had it, such as a ZIP file or a folder; and `site`, the website the source names, as a domain (`"example.org"`). For people and for support; a reader does not act on it |
+| `origin` | inline table | no | Where the file's cheats came from when a program converted them: `format`, the source's format (`"atmosphere"`, `"ips"` for IPS and IPS32, `"pchtxt"` for IPSwitch text, or a name starting with `x-`; for several sources, the first one's); `name`, the name of the source as the player had it, such as a ZIP file or a folder; and `site`, the website the source names, as a domain (`"example.org"`). For people and for support; a reader does not act on it |
 | `extensions` | table | no | `required` and `optional`, arrays of extension names with their version (`"arm64-imm/1"`), section 10 |
 | `game` | table | yes | Section 5 |
 | `builds` | table | no | Section 5 |
@@ -524,6 +524,8 @@ The code changes come first, in the order of their addresses, a byte change befo
 
 A runtime that stops, or loads the file again, first puts back every place it changed and unhooks every function it hooked.
 
+A runtime SHOULD make its first pass after the game's modules are loaded and before the game's code first runs, so that a patch of code that runs only at the start, such as one a converted patch file brings (section 15), works as it did in the loader. Where it cannot, such a patch works from its first pass on.
+
 ## 12. Signatures and trust
 
 A file MAY end with one or more signature lines:
@@ -645,6 +647,23 @@ With the build's main module, the converter finds the patterns and checks each p
 | `atmosphere:override` | Has an override without `expect`, or one whose stub is longer than it |
 | `atmosphere:module`, `atmosphere:region`, `atmosphere:address` | Has a place Atmosphère cannot name: in a module other than main, in a region without a memory code, or at an absolute address |
 | `atmosphere:empty` | Has nothing to write |
+
+For the patch files that Atmosphère and the emulators apply to a code module when they load it (IPS and IPS32 in `exefs_patches/<set>/`, and IPSwitch text, `.pchtxt`):
+
+| Patch file | `.mncf` |
+|---|---|
+| The file name, `<build ID>.ips`, or `@nsobid-<build ID>` in a `.pchtxt` | A build with `modules = { <module> = "<build ID>" }`, for the module whose build ID it is; the zero bytes at the end of the ID are left out, down to 16 digits |
+| An IPS or IPS32 file | One cheat, named by its patch set, with `default = true`: a loader applies the file whenever it is there |
+| A patch of a `.pchtxt`, from `@enabled` or `@disabled` to the next of them or `@stop` | One cheat, named by the comment on a line of its own before it, with `default = true` where it is `@enabled`. The patches of a file with more than one get `group` = the patch set |
+| A record that writes into code or read-only data | A patch, `expect` from the module |
+| A record that writes into data | A write of `bytes` with `expect` = the original bytes: a loader sets them once, and the write is made only while the place still holds them |
+| `#` lines, and lines of a `.pchtxt` that are no patch | Kept in `about`. Comments that credit someone give `authors` |
+
+- A record's offset counts from the start of the module's NSO file: its 0x100-byte header, then the image. The offset in the module is the record's offset less 0x100. The part of a record that lies in the header, or past the end of the module, is left out, as loaders do.
+- IPS: `PATCH`, then records up to `EOF`. A record is an offset (3 bytes, big-endian), a size (2 bytes, big-endian) and that many bytes; a size of 0 is a run of one byte: a count (2 bytes) and the byte. IPS32 is the same with `IPS32`, 4-byte offsets and `EEOF`. A later record wins over an earlier one at the same byte.
+- IPSwitch text: a patch line is an offset of 8 hexadecimal digits, a space, and a value: hexadecimal digits in pairs, in the order they are written, or reversed after `@little-endian` until `@big-endian`; or a string in double quotes, with the escapes `\n`, `\t`, `\r`, `\0`, `\\`, `\"` and `\'`, written as UTF-8. `@flag offset_shift <number>` adds the number to every offset after it. `//` starts a comment outside a string. A file stops at `@stop`.
+- A patch file holds no original bytes, so a converter needs the module it patches; without it, it cannot convert the file. A patch whose records lie where the module does not hold the game's own bytes cannot be converted either; it is left out and named in `about`.
+- As in an Atmosphère file, a patch gets a pattern where its place can be found by one, `movz` and `fmov` patches MAY become values the player sets, and files for several builds become one file, a cheat with the same name that does the same in each becoming one cheat.
 
 Converters for the cheat and patch files of other emulators and for PC cheat tables follow the same rule: keep every cheat, and write core operations where the meaning is clear.
 
@@ -864,5 +883,13 @@ A pack with one of these errors is not used at all:
 | `format` | `format` is not the first key of the manifest, or not `"mncf-pack/1"` |
 | `schema:<key>` | A key of the manifest is missing or has the wrong type or form |
 | `path:<path>` | A file path that section 13 does not allow |
+
+A converter (section 15) gives these errors for sources that cannot become a file:
+
+| Code | Meaning |
+|---|---|
+| `atmosphere` | Not an Atmosphère cheat file, or one without a cheat that has code |
+| `patch` | Not an IPS, IPS32 or IPSwitch patch file |
+| `source` | Sources that cannot be one file: two for the same build, a patch file without its module or without a build ID, or none of whose patches could be converted |
 
 Warnings: `unknown-key:<key>` for a key outside the cheats that neither the core nor a listed extension defines, with its path from the top of the file; `preset:<id>` for a dropped preset (section 8); `i18n` for an `i18n` table that is not a table of tables, which is then ignored.

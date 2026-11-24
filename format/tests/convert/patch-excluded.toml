@@ -1,0 +1,33 @@
+about = "A patch over code the runtime rewrote has no original bytes to take `expect` from: it is left out and named in `about`, the other one is kept."
+from = "patches"
+game = "0100000000ABC000"
+
+[[source]]
+file_name = "0123456789ABCDEF.pchtxt"
+set = "Pack"
+text = '''
+@flag offset_shift 0x100
+// Kept
+@enabled
+00001008 691200B9
+// Over rewritten code
+@enabled
+00001010 D503201F
+'''
+
+  [source.module]
+  size = 0x3800
+  code = [0x0, 0x2000]
+  rodata = [0x2000, 0x3000]
+  data = [0x3000, 0x3800]
+  text_size = 0x1FE0
+  bytes = [
+    { at = 0x1000, hex = "FD 7B BF A9 FD 03 00 91 68 12 00 B9 40 00 00 94 08 00 00 90 00 21 40 B9 FD 7B C1 A8 C0 03 5F D6" },
+    { at = 0x1800, hex = "00 10 2E 1E 08 20 20 1E" },
+    { at = 0x2100, hex = "45 78 61 6D 70 6C 65 00" },
+    { at = 0x3020, hex = "00 01 00 10 00 00 00 00" },
+  ]
+  exclude = [[0x1010, 4]]
+
+[expect]
+file = "patch-excluded.mncf"

@@ -1,0 +1,20 @@
+format = "mncf/1"
+name = "Converted patches"
+origin = { format = "ips" }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds.0F0E0D0C0B0A0908]
+modules = { subsdk0 = "0F0E0D0C0B0A0908" }
+
+[[cheat]]
+id = "sub-patch"
+name = "Sub patch"
+default = true
+
+  [[cheat.patch]]
+  at = { module = "subsdk0", find = "68 12 00 B9" }
+  expect = "68 12 00 B9"
+  bytes = "69 12 00 B9"
