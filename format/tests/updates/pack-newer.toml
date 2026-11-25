@@ -1,0 +1,22 @@
+about = """A newer pack is taken. Its files are matched with the old ones by their id and game, and a file \
+without an id by its path, following the pack's renamed. A file of the old pack that has no match is gone."""
+
+[installed_zip]
+"pack.toml" = "files/pack-v1.toml"
+"a.mncf" = "files/pa.mncf"
+"old/b.mncf" = "files/pb.mncf"
+"c.mncf" = "files/pc.mncf"
+
+[new_zip]
+"pack.toml" = "files/pack-v2.toml"
+"a-new.mncf" = "files/pa.mncf"
+"b.mncf" = "files/pb.mncf"
+"d.mncf" = "files/pd.mncf"
+
+[expect]
+reason = ""
+from = "1"
+to = "2"
+since = ["2"]
+texts = ["One file for each game, and a new one."]
+pairs = { "a.mncf" = "a-new.mncf", "old/b.mncf" = "b.mncf", "c.mncf" = "" }

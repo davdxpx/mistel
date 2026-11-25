@@ -1,0 +1,8 @@
+about = "The text of a change entry comes in the player's language where the file translates it."
+installed = "files/v3.mncf"
+new = "files/v5.mncf"
+language = "de"
+
+[expect]
+since = ["5", "4"]
+texts = ["Passt zu Spielversion 1.0.3. Geld geht wieder.", "The speed cheat is gone: it crashed in races."]

@@ -82,15 +82,17 @@ def split(data):
     return data[:start], lines, clean
 
 
-def check(data, trust=None):
-    """The signature result of a file's bytes."""
+def check(data, trust=None, signers=()):
+    """The signature result of a file's bytes. `signers` are the public keys of the file's `signers` key, which check
+    a line whose key is not trusted (section 12)."""
     trust = trust or TrustList()
+    own = {key_id(k): k for k in signers}
     signed, lines, clean = split(data)
     if not lines:
         return SignatureResult('unsigned')
     if not clean:
         return SignatureResult('invalid')
-    results, signers, kids = [], [], []
+    results, names, kids, verified = [], [], [], {}
     for line in lines:
         m = _LINE.match(line)
         if m is None:
@@ -108,14 +110,21 @@ def check(data, trust=None):
         elif kid in trust.revoked:
             results.append('revoked')
         elif trust.keys(kid):
-            good = [name for name, pub in trust.keys(kid) if ed25519.verify(pub, signed, sig)]
+            good = [(name, pub) for name, pub in trust.keys(kid) if ed25519.verify(pub, signed, sig)]
             results.append('verified' if good else 'invalid')
-            signers.extend(good)
+            names.extend(name for name, _ in good)
+            if good:
+                verified.setdefault(kid, good[0][1])
+        elif kid in own:
+            ok = ed25519.verify(own[kid], signed, sig)
+            results.append('unknown-key' if ok else 'invalid')
+            if ok:
+                verified.setdefault(kid, own[kid])
         else:
             results.append('unknown-key')
     for result in ('invalid', 'revoked', 'verified', 'unknown-key'):
         if result in results:
-            return SignatureResult(result, signers if result == 'verified' else [], kids)
+            return SignatureResult(result, names if result == 'verified' else [], kids, verified)
     return SignatureResult('unsigned')
 
 

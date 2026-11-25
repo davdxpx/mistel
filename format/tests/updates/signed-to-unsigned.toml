@@ -1,0 +1,6 @@
+about = "A signed file gets no unsigned new version."
+installed = "files/v3-one.mncf"
+new = "files/v5.mncf"
+
+[expect]
+reason = "update:signer"

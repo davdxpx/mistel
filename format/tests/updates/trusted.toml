@@ -1,0 +1,10 @@
+about = "With the key on the trust list, files without signers verify too."
+installed = "files/v3-one-bare.mncf"
+new = "files/v5-one-bare.mncf"
+
+[[trust.key]]
+name = "Test key one"
+public = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+
+[expect]
+reason = ""

@@ -203,24 +203,113 @@ def compare_passes(case, got):
     return problems
 
 
-def pack_results(case, folder):
-    z = case.get('zip', {})
+def zip_bytes(z, folder):
+    """The bytes of a case's ZIP table: text, exact hex, or entries made from files of the folder."""
     if 'text' in z:
-        data = z['text'].encode('utf-8')
-    elif 'hex' in z:
-        data = bytes.fromhex(z['hex'])
-    else:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, 'w') as archive:
-            for entry, source in z.items():
-                archive.writestr(entry, (folder / source).read_bytes())
-        data = buf.getvalue()
+        return z['text'].encode('utf-8')
+    if 'hex' in z:
+        return bytes.fromhex(z['hex'])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as archive:
+        for entry, source in z.items():
+            archive.writestr(entry, (folder / source).read_bytes())
+    return buf.getvalue()
+
+
+def pack_results(case, folder):
+    data = zip_bytes(case.get('zip', {}), folder)
     try:
         pack = read_pack(data, trust_list(case))
     except mncf.MncfError as e:
         return {'error': e.code}
     return {'signature': pack.signature.result, 'signers': pack.signature.signers,
             'files': {f.path: f.status for f in pack.files}}
+
+
+def side_bytes(case, side, folder):
+    """The bytes of one side of an update case, `installed` or `new`: a file of the folder, or `<side>_text`, or
+    `<side>_hex` for exact bytes."""
+    if f'{side}_text' in case:
+        return case[f'{side}_text'].encode('utf-8')
+    if f'{side}_hex' in case:
+        return bytes.fromhex(case[f'{side}_hex'])
+    return (folder / case[side]).read_bytes()
+
+
+def syntax_results(case):
+    """What the reader says of the forms of section 17: addresses, versions, ids and dates."""
+    from mncf import update
+    return {'url': [update.url_host(x['text']) or '' for x in case.get('url', [])],
+            'version': [update.is_version(x['text']) for x in case.get('version', [])],
+            'compare': [update.compare(x['a'], x['b']) for x in case.get('compare', [])],
+            'id': [update.is_file_id(x['text']) for x in case.get('id', [])],
+            'date': [update.is_date(x['text']) for x in case.get('date', [])]}
+
+
+def update_results(case, folder):
+    """Whether the new side of an update case is a new version of the installed side (spec, section 17), the change
+    entries to show and the cheats to mark, and with [settings], what the player set, moved to the new version."""
+    from mncf import update
+    if any(k in case for k in ('url', 'version', 'compare', 'id', 'date')):
+        return syntax_results(case)
+    trust = trust_list(case)
+    if 'installed_zip' in case:
+        old = read_pack(zip_bytes(case['installed_zip'], folder), trust)
+        check = update.check_pack(old, zip_bytes(case['new_zip'], folder), trust)
+    else:
+        old = mncf.load(side_bytes(case, 'installed', folder), trust)
+        check = update.check(old, side_bytes(case, 'new', folder), trust)
+    out = {'reason': check.reason, 'from': old.file_version or '', 'to': check.to_version or '',
+           'since': [], 'texts': [], 'new': [], 'fixed': []}
+    new = check.file
+    if new is None:
+        return out
+    shown = update.since(new, old.file_version)
+    out['since'] = [r.version for r in shown]
+    out['texts'] = [update.text(new, r, case.get('language')) or '' for r in shown]
+    if 'installed_zip' in case:
+        out['pairs'] = {k: v or '' for k, v in update.pairs(old, new, trust).items()}
+        return out
+    out['new'], out['fixed'] = update.marks(new, old.file_version)
+    if 'settings' in case:
+        s = case['settings']
+        c = update.carry(new, old.file_version, mncf.Choices(s.get('on', []), s.get('off', []), s.get('values', {})),
+                         s.get('preset') or None, s.get('kept', []))
+        out['settings'] = {'on': c.choices.on, 'off': c.choices.off, 'values': c.choices.values,
+                           'preset': c.preset or '', 'ids': {k: v or '' for k, v in c.ids.items()},
+                           'dropped': c.dropped, 'gone': c.gone, 'reset': c.reset}
+    return out
+
+
+SETTINGS = (('on', []), ('off', []), ('values', {}), ('preset', ''), ('ids', {}), ('dropped', []), ('gone', []),
+            ('reset', {}))
+
+
+def compare_updates(case, got):
+    """The differences between an update case's [expect] table and what the reader said, as lines. Only the keys
+    the case gives are compared, and `reason`; under `settings`, every key, with its default where it is missing."""
+    problems = []
+    if 'url' in got:
+        for kind, key in (('url', 'host'), ('version', 'valid'), ('compare', 'result'), ('id', 'valid'),
+                          ('date', 'valid')):
+            for item, value in zip(case.get(kind, []), got[kind]):
+                if not _same(item[key], value):
+                    problems.append(f'{kind} {item.get("text", item.get("a"))!r}: expected {item[key]!r}, '
+                                    f'got {value!r}')
+        return problems
+    want = case.get('expect', {})
+    keys = [k for k in want if k != 'settings'] + ([] if 'reason' in want else ['reason'])
+    for key in keys:
+        w = want.get(key, '')
+        if key not in got or not _same(w, got[key]):
+            problems.append(f'{key}: expected {w!r}, got {got.get(key)!r}')
+    if 'settings' in want:
+        g = got.get('settings', {})
+        for key, default in SETTINGS:
+            w = want['settings'].get(key, default)
+            if not _same(w, g.get(key)):
+                problems.append(f'settings.{key}: expected {w!r}, got {g.get(key)!r}')
+    return problems
 
 
 def case_module(m, build_id):
@@ -367,7 +456,8 @@ def compare(expect, got, folder=None):
     return problems
 
 
-KINDS = (('cases', file_results), ('packs', pack_results), ('convert', convert_results), ('passes', pass_results))
+KINDS = (('cases', file_results), ('packs', pack_results), ('convert', convert_results), ('passes', pass_results),
+         ('updates', update_results))
 
 
 def cases():
@@ -382,6 +472,8 @@ def check(name, case, got, folder):
     """The differences between a case's expected results and what this library gives, as lines."""
     if name.startswith('passes/'):
         return compare_passes(case, got)
+    if name.startswith('updates/'):
+        return compare_updates(case, got)
     return compare(case.get('expect', {}), got, folder)
 
 

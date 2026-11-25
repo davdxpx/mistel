@@ -1,0 +1,30 @@
+about = """A newer version of an unsigned file is taken. The player sees the entries above the version they had, \
+newest first; the new cheat is marked new and the fixed one fixed. What the player set follows the renamed cheat, \
+loses the removed one, and values that no longer fit go back to their defaults: a smaller range, a choice that is \
+gone, another type. A value the cheat no longer has is dropped, and so is a preset the new version does not have."""
+installed = "files/v3.mncf"
+new = "files/v5.mncf"
+
+[settings]
+on = ["money", "speed", "max-iv"]
+values = { "money.count" = 5000, "speed.factor" = 4, "items.item" = 3, "items.count" = 50, "items.slot" = 3, "items.extra" = 7 }
+preset = "race"
+kept = ["max-iv", "speed"]
+
+[expect]
+reason = ""
+from = "3"
+to = "5"
+since = ["5", "4"]
+texts = ["Fits game version 1.0.3. Money works again.", "The speed cheat is gone: it crashed in races."]
+new = ["shiny-odds"]
+fixed = ["money"]
+
+[expect.settings]
+on = ["money", "max-ivs"]
+values = { "items.count" = 50 }
+preset = ""
+ids = { "money" = "money", "speed" = "", "max-iv" = "max-ivs", "items" = "items" }
+dropped = ["speed"]
+gone = ["items.extra"]
+reset = { "money.count" = "range", "items.item" = "choice", "items.slot" = "type" }

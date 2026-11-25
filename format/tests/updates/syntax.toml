@@ -1,0 +1,240 @@
+about = """The forms of section 17: the addresses an update may have and their hosts, versions and how they \
+compare, file ids, and dates."""
+
+[[url]]
+text = "https://example.org/someone/update-example.mncf"
+host = "example.org"
+
+[[url]]
+text = "https://raw.githubusercontent.com/someone/cheats/main/za.mncf"
+host = "raw.githubusercontent.com"
+
+[[url]]
+text = "https://github.com/someone/cheats/releases/latest/download/za.mncf"
+host = "github.com"
+
+[[url]]
+text = "https://cheats.example.org:8443/file?id=12&lang=en"
+host = "cheats.example.org"
+
+[[url]]
+text = "https://example.org"
+host = "example.org"
+
+[[url]]
+text = "https://example.org/a%20b.mncf"
+host = "example.org"
+
+[[url]]
+text = "http://example.org/x.mncf"
+host = ""
+
+[[url]]
+text = "https://192.168.1.20/x.mncf"
+host = ""
+
+[[url]]
+text = "https://localhost/x.mncf"
+host = ""
+
+[[url]]
+text = "https://[::1]/x.mncf"
+host = ""
+
+[[url]]
+text = "https://user:secret@example.org/x.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org/x.mncf#top"
+host = ""
+
+[[url]]
+text = "https://Example.org/x.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org:0/x.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org:65536/x.mncf"
+host = ""
+
+[[url]]
+text = "https://-example.org/x.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org/a b.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org/a%2.mncf"
+host = ""
+
+[[url]]
+text = "https://example.org/caf\u00E9.mncf"
+host = ""
+
+[[url]]
+text = "HTTPS://example.org/x.mncf"
+host = ""
+
+[[url]]
+text = "https://example..org/x.mncf"
+host = ""
+
+[[version]]
+text = "5"
+valid = true
+
+[[version]]
+text = "2.1"
+valid = true
+
+[[version]]
+text = "2026.12.02"
+valid = true
+
+[[version]]
+text = "1.2.3.4.5.6.7.8"
+valid = true
+
+[[version]]
+text = "1.2.3.4.5.6.7.8.9"
+valid = false
+
+[[version]]
+text = "1234567890"
+valid = false
+
+[[version]]
+text = "v3"
+valid = false
+
+[[version]]
+text = "2.0-beta"
+valid = false
+
+[[version]]
+text = "1..2"
+valid = false
+
+[[version]]
+text = ""
+valid = false
+
+[[version]]
+text = " 1"
+valid = false
+
+[[compare]]
+a = "2.10"
+b = "2.9"
+result = 1
+
+[[compare]]
+a = "2"
+b = "2.0.0"
+result = 0
+
+[[compare]]
+a = "2.0.1"
+b = "2"
+result = 1
+
+[[compare]]
+a = "1.999999999"
+b = "2"
+result = -1
+
+[[compare]]
+a = "2026.12.02"
+b = "2026.12.2"
+result = 0
+
+[[compare]]
+a = "007"
+b = "7"
+result = 0
+
+[[id]]
+text = "github.com/someone/za-cheats"
+valid = true
+
+[[id]]
+text = "example.org/someone/update_example.v2"
+valid = true
+
+[[id]]
+text = "za-cheats"
+valid = true
+
+[[id]]
+text = "GitHub.com/someone/za"
+valid = false
+
+[[id]]
+text = "https://github.com/someone/za"
+valid = false
+
+[[id]]
+text = "github.com//za"
+valid = false
+
+[[id]]
+text = "github.com/someone/"
+valid = false
+
+[[id]]
+text = "github.com/../za"
+valid = false
+
+[[id]]
+text = "a b"
+valid = false
+
+[[id]]
+text = ""
+valid = false
+
+[[date]]
+text = "2026-12-02"
+valid = true
+
+[[date]]
+text = "2028-02-29"
+valid = true
+
+[[date]]
+text = "2000-02-29"
+valid = true
+
+[[date]]
+text = "1900-02-29"
+valid = false
+
+[[date]]
+text = "2026-02-29"
+valid = false
+
+[[date]]
+text = "2026-04-31"
+valid = false
+
+[[date]]
+text = "2026-13-01"
+valid = false
+
+[[date]]
+text = "2026-00-10"
+valid = false
+
+[[date]]
+text = "2026-1-02"
+valid = false
+
+[[date]]
+text = "2026-12-02T10:00"
+valid = false

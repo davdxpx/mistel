@@ -1,0 +1,6 @@
+about = "To change keys, a version is signed with the old key and the new one."
+installed = "files/v3-one.mncf"
+new = "files/v5-both.mncf"
+
+[expect]
+reason = ""

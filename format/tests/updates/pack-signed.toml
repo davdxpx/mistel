@@ -1,0 +1,16 @@
+about = "A signed pack gets a new version signed by the same key, as its manifest's signers show."
+
+[installed_zip]
+"pack.toml" = "files/pack-v1-one.toml"
+"a.mncf" = "files/pa.mncf"
+"old/b.mncf" = "files/pb.mncf"
+"c.mncf" = "files/pc.mncf"
+
+[new_zip]
+"pack.toml" = "files/pack-v2-one.toml"
+"a-new.mncf" = "files/pa.mncf"
+"b.mncf" = "files/pb.mncf"
+"d.mncf" = "files/pd.mncf"
+
+[expect]
+reason = ""

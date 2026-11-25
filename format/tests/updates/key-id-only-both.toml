@@ -1,0 +1,6 @@
+about = "Neither file names its key: nothing verifies the new version, so it cannot show the same signer."
+installed = "files/v3-one-bare.mncf"
+new = "files/v5-one-bare.mncf"
+
+[expect]
+reason = "update:signer"

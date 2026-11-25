@@ -8,6 +8,7 @@ import math
 import re
 
 from . import encode as enc
+from . import update
 from .model import (Build, Cheat, Condition, Location, MncfError, Override, Patch, Place, Preset, Raw, Read, ValueRef,
                     ValueSpec, Write)
 from .values import (BYTES, EXTENSION, FLOAT_TYPES, ID, INT_TYPES, NUMBER_TYPES, PLAYER_VALUE, VALUE_TYPES,
@@ -15,8 +16,8 @@ from .values import (BYTES, EXTENSION, FLOAT_TYPES, ID, INT_TYPES, NUMBER_TYPES,
 
 KNOWN_EXTENSIONS = ('raw/1', 'arm64-imm/1')
 
-FILE_KEYS = ('format', 'name', 'authors', 'about', 'file_version', 'language', 'origin', 'extensions', 'game', 'builds',
-             'cheat', 'choices', 'preset', 'i18n')
+FILE_KEYS = ('format', 'name', 'id', 'authors', 'about', 'file_version', 'language', 'origin', 'extensions', 'signers',
+             'update', 'changes', 'game', 'builds', 'cheat', 'choices', 'preset', 'i18n')
 RUNS = ('on', 'once', 'action', 'timed', 'monitor')
 OPS = ('==', '!=', '<', '<=', '>', '>=', '&', '!&', 'between', 'changed')
 SECTIONS = ('code', 'rodata', 'data')
@@ -72,6 +73,8 @@ def build_file(doc, platforms):
             out[key] = _req_str(doc, key)
     if 'authors' in doc:
         out['authors'] = _str_list(doc['authors'], 'authors')
+    out['signers'] = update.read_signers(doc, warnings)
+    out.update(update.read_keys(doc, warnings))
 
     if 'origin' in doc:
         origin = doc['origin']

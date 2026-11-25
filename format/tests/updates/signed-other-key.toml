@@ -1,0 +1,6 @@
+about = "Signed by another key: not taken, as anyone could sign a file with a key of their own."
+installed = "files/v3-one.mncf"
+new = "files/v5-two.mncf"
+
+[expect]
+reason = "update:signer"

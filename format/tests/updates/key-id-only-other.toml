@@ -1,0 +1,6 @@
+about = "A new version by another key does not count, also where the installed line could not be checked."
+installed = "files/v3-one-bare.mncf"
+new = "files/v5-two.mncf"
+
+[expect]
+reason = "update:signer"

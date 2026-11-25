@@ -1,0 +1,102 @@
+format = "mncf/1"
+name = "Update example"
+id = "example.org/someone/update-example"
+file_version = "5"
+
+[update]
+url = "https://example.org/someone/update-example.mncf"
+
+[[changes]]
+version = "5"
+date = "2026-12-02"
+text = "Fits game version 1.0.3. Money works again."
+added = ["shiny-odds"]
+fixed = ["money"]
+renamed = { max-iv = "max-ivs" }
+
+[[changes]]
+version = "3"
+date = "2026-09-01"
+text = "Speed for races."
+added = ["speed"]
+
+[[changes]]
+version = "4"
+date = "2026-10-11"
+text = "The speed cheat is gone: it crashed in races."
+removed = ["speed"]
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[builds."1.0.3"]
+modules = { main = "1122334455667788" }
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [cheat.values.count]
+  type = "u32"
+  max = 500
+  default = 100
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = "$count"
+
+[[cheat]]
+id = "max-ivs"
+name = "Best values"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u8"
+  value = 31
+
+[[cheat]]
+id = "items"
+name = "Items"
+
+  [cheat.values.item]
+  type = "u16"
+  choices = { "1" = "Potion", "2" = "Ether" }
+  default = 1
+
+  [cheat.values.count]
+  type = "u8"
+  min = 1
+  max = 99
+  default = 99
+
+  [cheat.values.slot]
+  type = "bool"
+  default = false
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x40 }
+  type = "u16"
+  value = "$item"
+
+[[cheat]]
+id = "shiny-odds"
+name = "Better odds"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x50 }
+  type = "u8"
+  value = 1
+
+[[preset]]
+id = "relaxed"
+name = "Relaxed"
+cheats = ["money"]
+
+[i18n.de.changes."5"]
+text = "Passt zu Spielversion 1.0.3. Geld geht wieder."
+# mncf-signature: ed25519 21fe31dfa154a261 54knCX/5pWUTZD7upXq/HgKXj9hFvyEsDj+aHohfLvc5hwKdJWZOa+eBpfGt0+bNuc7NEmRDTEB8ciVa6IdMAA==

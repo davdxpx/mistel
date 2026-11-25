@@ -19,6 +19,7 @@ This folder is under the [MIT License](LICENSE), so that any emulator or port ca
 - **Values the player sets:** typed numbers with a range, step and unit, lists of named choices, bit flags. Code cheats get values too, by re-encoding the instruction.
 - **Order and meaning:** groups, a description, tags such as `touches_save`, presets, cheats that need or exclude others, groups where only one can be on.
 - **Who made it:** the author, and a signature that a reader checks against keys it trusts.
+- **Its versions:** an identity that stays the same across versions, the address of the newest version, and notes on what each version changed, so that a runtime can bring the player a version made for a new game update, signed by the same author, with everything the player set kept.
 
 The complete schema is the spec.
 

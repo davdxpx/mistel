@@ -65,12 +65,16 @@ The cheat finds its place by a byte pattern, so it works on both builds and on a
 |---|---|---|---|
 | `format` | string | yes | `"mncf/1"`, the first key of the file |
 | `name` | string | yes | The file's title, shown to the player |
+| `id` | string | no | The identity of the file across all its versions, section 17 |
 | `authors` | array of strings | no | Who made the cheats |
 | `about` | string | no | A description of the file, credits |
-| `file_version` | string | no | The authors' own version of this file, so a runtime can say that a newer one was imported |
+| `file_version` | string | no | The authors' own version of this file, so a runtime can say that a newer one was imported. With `[update]` or `[[changes]]`, numbers separated by dots (section 17.1) |
 | `language` | string | no | The language of the file's plain strings, a BCP 47 tag. Default `"en"` |
 | `origin` | inline table | no | Where the file's cheats came from when a program converted them: `format`, the source's format (`"atmosphere"`, `"ips"` for IPS and IPS32, `"pchtxt"` for IPSwitch text, or a name starting with `x-`; for several sources, the first one's); `name`, the name of the source as the player had it, such as a ZIP file or a folder; and `site`, the website the source names, as a domain (`"example.org"`). For people and for support; a reader does not act on it |
 | `extensions` | table | no | `required` and `optional`, arrays of extension names with their version (`"arm64-imm/1"`), section 10 |
+| `signers` | array of strings | no | The public keys that sign the file, section 12 |
+| `update` | table | no | Where the newest version of the file is, section 17 |
+| `changes` | array of tables | no | What each version of the file changed, section 17 |
 | `game` | table | yes | Section 5 |
 | `builds` | table | no | Section 5 |
 | `cheat` | array of tables | yes | Section 7 |
@@ -389,7 +393,7 @@ name = "Geld bleibt gleich"
 about = "Beim Einkaufen bleibt dein Geld, wo es ist."
 ```
 
-`i18n.<tag>.cheat.<id>` MAY hold `name`, `about` and, under `values.<id>`, `unit`. `i18n.<tag>.choices.<list>` translates a choice list. A runtime uses the translation for the player's language and falls back to the plain strings.
+`i18n.<tag>.cheat.<id>` MAY hold `name`, `about` and, under `values.<id>`, `unit`. `i18n.<tag>.choices.<list>` translates a choice list, and `i18n.<tag>.changes."<version>"` MAY hold the `text` of a change entry (section 17.1). A runtime uses the translation for the player's language and falls back to the plain strings.
 
 ## 10. Extensions
 
@@ -552,6 +556,8 @@ A reader checks each signature against the keys it trusts: keys built into the r
 
 A file with several signature lines gets one result: `invalid` if any line is invalid, else `revoked` if any key is revoked, else `verified` if any trusted key verified, else `unknown-key`. An `ed25519` line that is not well formed is invalid. A line of an algorithm the reader does not know cannot be checked and counts as `unknown-key`, so that new algorithms can be added. A signature that names a trusted key's id but does not verify with that key is invalid. The cheats of a file that is `invalid` or `revoked` are refused with `signature`.
 
+A file MAY list the public keys that sign it in `signers`: an array of 32-byte Ed25519 public keys in standard base64, each once. A key there is not trusted. It lets a reader check a signature by a key that is not on its trust list, so that a runtime can tell that a new version of a file was signed by the same key as the one before (section 17.2). A signature line whose key id is that of a key in `signers`, and of no trusted key, is checked with that key: where it verifies, the line counts as `unknown-key`, as before; where it does not, the line is invalid, because the file was changed after signing. A `signers` key that breaks these rules is ignored, with the warning `signers` (Appendix D). Signing tools (`mistel release`) write the key into `signers` before they sign, so that it is covered by the signature.
+
 A signature is optional. It is a mark of origin for files someone wants to vouch for, such as a curated pack; a runtime MUST NOT warn about, hide or treat differently a file only because it is unsigned. Only `verified` gets a mark in the runtime's interface.
 
 A runtime keeps the keys it trusts and the keys it no longer trusts in a **trust list**, a TOML file of its own format:
@@ -592,7 +598,7 @@ sha256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
 The manifest is signed as a file is (section 12). A reader checks each listed file's hash and MUST NOT apply a file whose hash differs. Files in a pack MAY also carry their own signatures.
 
-- `format = "mncf-pack/1"` is the first key of the manifest; `name` and at least one `[[file]]` are required; `authors`, `about` and `file_version` are as in a file.
+- `format = "mncf-pack/1"` is the first key of the manifest; `name` and at least one `[[file]]` are required; `authors`, `about`, `file_version`, `id`, `signers`, `update` and `changes` are as in a file, `id`, `update` and `changes` for the pack as a whole (section 17.6).
 - `path` is a path inside the pack: parts separated by `/`, none of them empty, `.` or `..`, no `\`, not `pack.toml`, and no path twice. `sha256` is the SHA-256 hash of the file in 64 lower-case hexadecimal digits.
 - A pack whose ZIP has two entries of the same name is refused. Files the manifest does not list are ignored.
 - A reader reads only entries that are stored or deflated, not encrypted, and need a ZIP version of at most 6.3 to extract, so that every reader reads the same packs. An entry that breaks one of these rules, or whose data does not decompress, makes the pack `zip`.
@@ -693,6 +699,137 @@ A converter also writes down what it knows about the source:
 ## 16. Conformance
 
 The conformance suite in [`format/tests/`](../tests/) holds made-up files and packs with the results every reader must give: errors, warnings, the build, signature results, and each cheat's state, reason and resolved operations. Its pass cases give a file, a runtime and a sequence of what the player and the game do between passes, with the changes of each pass and the states after it. A reader conforms to `mncf/1` when it gives those results for every case; a runtime's pass engine, when it gives them for every pass case. A change to a rule of this spec comes with the cases that show it.
+
+## 17. Updates
+
+A file can name the address of its newest version. When the game gets an update and the authors make a new version of the file for it, a runtime can then bring that version to the player, with the authors' notes on what changed, and keep everything the player set.
+
+```toml
+format = "mncf/1"
+name = "Example Quest cheats"
+id = "example.org/someone/example-quest"
+file_version = "5"
+
+[update]
+url = "https://example.org/someone/example-quest/example-quest.mncf"
+
+[[changes]]
+version = "5"
+date = "2026-12-02"
+text = "Fits game version 1.0.4. Money and the first bag slot work again."
+added = ["shiny-odds"]
+fixed = ["money", "first-slot"]
+renamed = { "max-iv" = "max-ivs" }
+
+[[changes]]
+version = "4"
+date = "2026-10-11"
+text = "The old speed cheat is gone: it crashed in races."
+removed = ["speed"]
+```
+
+A reader of an earlier draft reads such a file: a key outside a cheat that it does not know is only a warning (section 10).
+
+### 17.1 The keys
+
+| Key | Type | Meaning |
+|---|---|---|
+| `id` | string | The identity of the file across all its versions. Two files with the same `id` and the same game are versions of one file. 1 to 128 characters: lower-case ASCII letters, digits, `.`, `-` and `_`, in parts separated by `/`, none of them empty, `.` or `..`. A domain or a repository the authors control, followed by a path, keeps it unique: `"github.com/someone/example-quest"`. It names the file and is not an address: it has no scheme, and a runtime never connects to it |
+| `file_version` | string | Section 4. In a file with `[update]` or `[[changes]]`, a **version**: 1 to 8 whole numbers of 1 to 9 decimal digits each, separated by dots: `"5"`, `"2.1"`, `"2026.12.2"` |
+| `update` | table | `url`: the address of the newest version of the file (section 17.3) |
+| `changes` | array of tables | One change entry for each version, below |
+
+Versions are compared number by number from the left, as numbers: `"2.10"` is above `"2.9"`, and a number that is missing counts as 0, so `"2"` and `"2.0"` are the same version.
+
+A change entry:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `version` | string | Required. The version it describes, a version as above, not above the file's `file_version` |
+| `date` | string | The day the version was made, as `"YYYY-MM-DD"`, a day of the Gregorian calendar. It is a string because the format has no date values (section 2) |
+| `text` | string | What changed, for the player. Translations go in `i18n.<tag>.changes."<version>".text` (section 9) |
+| `added` | array of ids | Cheats that are new in this version |
+| `fixed` | array of ids | Cheats that work again in this version, or work better |
+| `removed` | array of ids | Cheats of the version before that this one no longer has |
+| `renamed` | inline table | From the id a cheat had in the version before to the id it has in this one |
+
+- Each version has at most one entry. The entries MAY come in any order; a runtime shows them newest first.
+- The ids in the lists are cheat ids (section 2), each at most once in an entry. An id is in at most one of `added`, `fixed` and `removed`, and a cheat in `removed` is not renamed in the same entry. Two cheats are not renamed to the same id.
+- The newest entry SHOULD be for the file's `file_version`. A tool that makes a new version of a file, such as `mistel release`, writes it.
+
+A reader keeps the file usable whatever is wrong with these keys. It leaves out what is wrong and warns (Appendix D):
+
+- `id`: `id` is not an id as above. The file is read without one.
+- `update`: `[update]` cannot be used: it is not a table, has no `url` that section 17.3 allows, or is in a file without `id` or without a `file_version` that is a version. The file is read without it.
+- `changes`: `changes` is not an array of tables, or is in a file without a `file_version` that is a version. The file is read without change entries.
+- `changes:<version>`: one entry breaks a rule above. It is left out; `<version>` is its `version`, or its position from 1 where it has no `version` string.
+
+A key inside `update` or a change entry that this section does not define is the warning `unknown-key:update.<key>` or `unknown-key:changes.<key>`, as for any key outside a cheat.
+
+### 17.2 A new version
+
+A runtime takes a file as a new version of a file it holds only when all of the following holds, checked in this order. The first that does not hold is the reason it gives (Appendix E):
+
+1. The new file loads (Appendix D). Otherwise: `update:error:<code>`, with the code of the error.
+2. Its signature is not `invalid` or `revoked` (section 12). Otherwise: `update:signature`.
+3. It is for the same game: the same `game.platform`, and the same `game.id` without regard to case. Otherwise: `update:game`.
+4. It has the same `id`. Otherwise, also where it has none: `update:id`.
+5. Its `file_version` is a version, above the version of the file the runtime holds. A file held without a version counts as below every version. Otherwise: `update:version`. So an old file, signed or not, can never be played back in place of a newer one.
+6. **The same signer.** Where the file the runtime holds has signature lines, a signature line of the new file verifies with a key that signed the file it holds. Otherwise: `update:signer`.
+
+The keys that signed a file are the keys of its signature lines that verify, with a key the reader trusts or with a key in the file's `signers` (section 12). A line that cannot be checked that way gives only its key id: a line of the new file then counts where it names that key id and verifies with a key of the new file. A line of an algorithm the reader does not know gives nothing, so a file signed only that way gets no new version from that reader. A revoked key never counts: a file signed with one is `revoked`.
+
+To change keys, the authors sign one version with the old key and the new one, using two signature lines, and later versions with the new key only.
+
+A file without signature lines gets new versions the same way, without step 6. It is not warned about or marked for being unsigned (section 12). Its new version MAY be signed, and from then on step 6 holds.
+
+When the player adds a file by hand that has the `id` and the game of a file the runtime holds, it is a new version of that file too, and the runtime keeps what the player set (section 17.5). Because the player chose it, the runtime MAY take it even where step 5 or 6 does not hold, after saying so: it is an older version, or it was signed by another key.
+
+### 17.3 Looking for a new version
+
+`update.url` is the address of the newest version of the file itself, not of a list of versions: one `.mncf` file covers every build of its game, so no list is needed. A raw file in a repository, a release asset, or a fixed address that a site gives each file is enough. The address:
+
+- starts with `https://`;
+- then names a host: two or more parts of lower-case ASCII letters, digits and `-`, separated by dots, each part 1 to 63 characters that neither start nor end with `-`, and the last part not only digits, so that it is a name and not an IP address;
+- then MAY give a port, `:` and 1 to 5 digits, a number from 1 to 65535;
+- then MAY give a path, starting with `/`, and a query, starting with `?`, of ASCII letters, digits, the characters `-._~!$&'()*+,;=:@/?` and `%` followed by two hexadecimal digits;
+- has no user name and no `#`, and is at most 2,048 characters long.
+
+A runtime:
+
+- **asks first.** When a file with `[update]` is added, it asks the player once whether it may look for new versions of the file at the host, naming the host. Without a yes, it looks only when the player asks for it, such as with a button "Check for updates". It keeps the answer for the file, by its `id`, and the host; a new version whose `url` names another host is asked about again.
+- **sends nothing about the player.** It asks for the address as it is written, with `GET`, without cookies, credentials, cache validators (`If-None-Match`, `If-Modified-Since`) or a `Referer`, and with the User-Agent `mncf-update/1`, the same in every runtime. It follows at most 5 redirects, each to an `https` address; the host of a redirect needs no answer of its own. It SHOULD NOT connect where the host's address is a loopback, private or link-local one.
+- reads at most the size a file may have (Appendix D), and takes only an answer with status 200, whatever its content type, as the new file. It then checks it as section 17.2 says.
+- where the player allowed it, looks at most once a day for a file, and also **at the moment a game update stops the cheats**: when cheats of the file are refused with `build-unknown`, `pattern-not-found` or `expect-mismatch`, or the build that runs is none of the file's builds. Where the player did not allow it, the runtime offers to look at that moment. Where the new version names the build that runs, the runtime says that a new version of the file knows this version of the game.
+
+### 17.4 Installing a new version
+
+- A runtime MUST NOT put a new version in place of the old one without the player's yes. It first shows the `text` of each change entry above the version the player has, up to the new version, newest first, in the player's language (section 9), and the host the new version came from. One yes installs it.
+- A runtime that installs new versions keeps the version it replaced, so that the player can go back to it. Going back is the player's choice and is not checked as section 17.2 says. After going back, the runtime does not offer the version the player left again, only a version above it.
+- In the cheat list, a runtime MAY mark the cheats in `added` of those entries as new, and those in `fixed` as fixed, under their ids in the new version (section 17.5), until the player has seen them.
+
+### 17.5 What the player set
+
+A runtime keeps everything the player set for a file across its versions. For each cheat, by its id: whether the player switched it on or off, its values, and what else the runtime keeps for a cheat, such as the answer whether it stays off after the game ended abnormally (section 11.4), or that the save was backed up before it was first switched on. For the file: the preset the player chose, the answer to the question of section 17.3, and what else the runtime keeps for the file.
+
+The ids follow the change entries above the version the player has, up to the new version, in version order. In each entry, an id in `removed` is gone, an id in `renamed` takes its new id, and the others keep theirs. Then:
+
+- What the player set for a cheat that the new version does not have is dropped.
+- A value of a cheat that is still there keeps what the player chose where it still fits the value in the new version: of its type, inside `min` and `max`, and one of its `choices`. Otherwise it goes back to its default, and the runtime names these values, calmly, when it shows the new version. A value whose id the cheat no longer has is dropped.
+- A preset that the new version does not have is dropped.
+- The same holds when the player adds a new version of a file by hand (section 17.2).
+
+The libraries in [`../lib/`](../lib/) give this mapping, the check of section 17.2 and the change entries to show, so that every runtime does the same.
+
+### 17.6 Packs
+
+A pack manifest (section 13) has the same keys for the pack as a whole: `id`, `signers`, `file_version`, `[update]` and `[[changes]]`, with the same warnings. Its `update.url` is the address of the newest `.mncp` file, and the lists of its change entries name the pack's files by their `path`, which then need not be ids.
+
+- A runtime checks a new pack as section 17.2 says, for the manifest: the pack's errors (Appendix D) for step 1, the manifest's signature for steps 2 and 6, and no step 3, as a pack has no game of its own.
+- It matches each file of the old pack with the file of the new pack that has the same `id` and game. A file without such a match is matched with the file at the same `path`, following the `renamed` of the pack's change entries, where one of the two has no `id`. For each pair, it keeps what the player set as section 17.5 says, with that file's own change entries. A file of the old pack without a match is gone, with what the player set for it.
+- A file in a pack gets new versions only with its pack: a runtime ignores the `[update]` of a file it holds from a pack.
+
+Other formats of Mistel use the keys of this section as it says, with the ids of what their files hold in the lists of the change entries.
 
 ## Appendix A. Platforms
 
@@ -905,4 +1042,17 @@ A converter (section 15) gives these errors for sources that cannot become a fil
 | `patch` | Not an IPS, IPS32 or IPSwitch patch file |
 | `source` | Sources that cannot be one file: two for the same build, a patch file without its module or without a build ID, or none of whose patches could be converted |
 
-Warnings: `unknown-key:<key>` for a key outside the cheats that neither the core nor a listed extension defines, with its path from the top of the file; `preset:<id>` for a dropped preset (section 8); `i18n` for an `i18n` table that is not a table of tables, which is then ignored.
+Warnings: `unknown-key:<key>` for a key outside the cheats that neither the core nor a listed extension defines, with its path from the top of the file; `preset:<id>` for a dropped preset (section 8); `i18n` for an `i18n` table that is not a table of tables, which is then ignored; `signers` for a `signers` key that is not an array of public keys, each once (section 12); and `id`, `update`, `changes` and `changes:<version>` for the keys of section 17.1, in a file or a pack manifest, which are then left out as that section says.
+
+## Appendix E. Update reasons
+
+The reasons a runtime gives when it does not take a file as a new version of one it holds (section 17.2), in the order it checks them:
+
+| Reason | Meaning |
+|---|---|
+| `update:error:<code>` | The new file, or pack, does not load: `<code>` is its error (Appendix D) |
+| `update:signature` | Its signature is `invalid` or `revoked` |
+| `update:game` | It is for another platform or another game |
+| `update:id` | It has another `id`, or none |
+| `update:version` | Its `file_version` is not a version, or not above the version the runtime holds |
+| `update:signer` | The file the runtime holds is signed, and no signature line of the new one verifies with a key that signed it |

@@ -1,0 +1,6 @@
+about = "The error code of the new file is the reader's own."
+installed = "files/v3.mncf"
+new_hex = "EF BB BF 66 6F 72 6D 61 74"
+
+[expect]
+reason = "update:error:encoding"

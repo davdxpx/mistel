@@ -8,6 +8,7 @@ Made-up `.mncf` files and `.mncp` packs, each with the result every reader of `m
 | `packs/` | One pack case per `.toml` file; `packs/files/` holds what goes into the ZIP files |
 | `convert/` | One conversion case per `.toml` file: Atmosphère files and made-up code modules, and next to it the exact `.mncf` text every converter writes |
 | `passes/` | One pass case per `.toml` file: a file, a runtime, and steps of what the player and the game do, each with the changes of one pass and the states after it ([spec, section 11.5](../spec/mncf-1.md#115-a-pass)) |
+| `updates/` | One update case per `.toml` file: a file or pack the runtime holds and a new one, whether the new one is taken as a new version, what the player sees, and what the player set, moved over ([spec, section 17](../spec/mncf-1.md#17-updates)); `updates/files/` holds the files |
 | `sign.py` | Writes the signed files from their unsigned sources |
 
 The libraries run the whole suite: `python format/lib/python/tests/conformance.py`, `sh format/lib/java/build.sh` and, for C, `mncf_conformance format/tests` (see [`lib/c/`](../lib/c/), which has no converter yet and leaves the conversion cases out). Their `--dump` output is the same, case for case; `format/lib/c/tests/compare_dump.py` compares the C runner's with Python's byte for byte.
@@ -261,9 +262,50 @@ file = "patch-ips.mncf"
 # or error = "patch" (a file that is no patch file) or "source"
 ```
 
+## An update case
+
+```toml
+about = "What the case shows."
+installed = "files/v3.mncf"  # the file the runtime holds, in this folder; or installed_text = '''...''', installed_hex
+new = "files/v5.mncf"        # the new file; or new_text, new_hex
+language = "de"              # optional: the player's language, for the texts of the change entries
+
+[trust]                      # optional: as in a file case
+
+[settings]                   # optional: what the player set for the installed file
+on = ["money"]
+off = ["speed"]
+values = { "money.count" = 5000 }
+preset = "relaxed"
+kept = ["max-iv"]            # cheats the runtime keeps something else for, such as a crash answer
+
+[expect]
+reason = ""                  # "" when the new file is taken, else a reason of Appendix E; always compared
+from = "3"                   # the installed file's version, "" for none
+to = "5"                     # the new file's version, "" for none
+since = ["5", "4"]           # the change entries to show, newest first
+texts = ["...", "..."]       # their texts, in the player's language where the file has them, "" for none
+new = ["shiny-odds"]         # the cheats to mark as new, in file order
+fixed = ["money"]            # the cheats to mark as fixed
+
+[expect.settings]            # with [settings]: what the player set, moved to the new version; every key is compared
+on = ["money", "max-ivs"]
+off = []
+values = { "items.count" = 50 }
+preset = ""                  # "" where the new version does not have it
+ids = { "max-iv" = "max-ivs", "speed" = "" }   # each cheat id seen, and its new id, "" where it is gone
+dropped = ["speed"]          # the cheats whose settings were dropped
+gone = ["items.extra"]       # values whose id the cheat no longer has
+reset = { "money.count" = "range" }   # values back at their default: type, range or choice
+```
+
+Apart from `reason` and the keys of `settings`, only the keys a case gives are compared. A pack update case has `[installed_zip]` and `[new_zip]` tables, made as a pack case's `[zip]`, instead of `installed` and `new`, and `pairs` in `[expect]`: each file of the old pack and the file of the new pack it is matched with, `""` for none.
+
+A syntax case (`syntax.toml`) lists forms with the result every reader gives: `[[url]]` with `text` and `host` (`""` where the address is not allowed), `[[version]]` and `[[id]]` and `[[date]]` with `text` and `valid`, and `[[compare]]` with `a`, `b` and `result` (-1, 0 or 1).
+
 ## Signed cases
 
-`sign.py` signs `cases/signed.mncf` and `packs/files/pack.toml` into the `signed-*.mncf` and `pack-signed*.toml` files, some of them changed after signing on purpose. It signs with the keys of RFC 8032, section 7.1, tests 1 and 2. Those keys are public test data: anyone can sign with them, so they prove nothing outside this suite.
+`sign.py` signs `cases/signed.mncf` and `packs/files/pack.toml` into the `signed-*.mncf` and `pack-signed*.toml` files, some of them changed after signing on purpose, and the versions in `updates/files/` into their signed forms, with the public key in `signers` (`-one`, `-two`, `-both`) or without it (`-bare`). It signs with the keys of RFC 8032, section 7.1, tests 1 and 2. Those keys are public test data: anyone can sign with them, so they prove nothing outside this suite.
 
 | Name | Key id | Public key (base64) |
 |---|---|---|

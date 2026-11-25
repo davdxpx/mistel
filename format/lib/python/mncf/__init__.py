@@ -5,12 +5,13 @@
     ev = mncf.evaluate(f, rt)                  # the build that runs, and each cheat's state, reason and operations
     eng = mncf.Engine(f, rt)                   # the cheats pass by pass: eng.tick(memory) gives each pass's changes
 
-Writing is in mncf.write, converting Atmosphère cheat files in mncf.convert, packs in mncf.pack.
+Writing is in mncf.write, converting Atmosphère cheat files in mncf.convert, packs in mncf.pack, new versions of a
+file (section 17) in mncf.update.
 """
 import datetime
 import tomllib
 
-from . import ed25519, encode, platforms, signature
+from . import ed25519, encode, platforms, signature, update
 from .engine import Change, CheatState, Engine, Pass, Shown
 from .evaluate import CAPABILITIES, FEATURES, Choices, CheatResult, Evaluation, Module, ResolvedOp, Runtime, evaluate, \
     find_all, identify
@@ -21,7 +22,7 @@ from .signature import TrustList, key_id, read_trust_list
 __all__ = ['load', 'evaluate', 'identify', 'find_all', 'Runtime', 'Module', 'Choices', 'Evaluation', 'CheatResult',
            'ResolvedOp', 'Engine', 'Pass', 'Change', 'CheatState', 'Shown', 'MncfError', 'MncfFile', 'SignatureResult',
            'TrustList', 'key_id', 'read_trust_list', 'KNOWN_EXTENSIONS', 'CAPABILITIES', 'FEATURES', 'ed25519',
-           'encode', 'platforms', 'signature']
+           'encode', 'platforms', 'signature', 'update']
 
 
 def decode(data):
@@ -71,7 +72,7 @@ def load(data, trust=None):
         raise MncfError('size', f'the file has more than {MAX_FILE} bytes')
     text = decode(data)
     doc = parse_toml(text)
-    sig = signature.check(data, trust)
-    signed, _, _ = signature.split(data)
     parts = build_file(doc, platforms.PLATFORMS)
+    sig = signature.check(data, trust, parts['signers'])
+    signed, _, _ = signature.split(data)
     return MncfFile(data=data, signed=signed, signature=sig, **parts)

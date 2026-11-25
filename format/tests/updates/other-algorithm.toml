@@ -1,0 +1,6 @@
+about = "A file signed only by an algorithm the reader does not know gets no new version from it."
+installed = "files/v3-other.mncf"
+new = "files/v5-one.mncf"
+
+[expect]
+reason = "update:signer"

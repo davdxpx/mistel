@@ -1,0 +1,9 @@
+about = "An older version is never taken in place of a newer one, so an old file cannot be played back."
+installed = "files/v5.mncf"
+new = "files/v3.mncf"
+
+[expect]
+reason = "update:version"
+from = "5"
+to = "3"
+since = []

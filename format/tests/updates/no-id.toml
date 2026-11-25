@@ -1,0 +1,23 @@
+about = "A file without an id is no new version of one."
+installed = "files/v3.mncf"
+new_text = '''
+format = "mncf/1"
+name = "Update example"
+file_version = "9"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 5
+'''
+
+[expect]
+reason = "update:id"
