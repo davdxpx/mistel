@@ -1,0 +1,22 @@
+about = "Code type 6 carries a 64-bit value whatever its width, and dmnt writes as many of its low bytes as the width says: a 4-byte store of 00000008 00000002 writes 2, a 2-byte one of 00000000 0001FFFF writes FFFF."
+game = "0100000000ABC000"
+name = "Example"
+origin = "example.zip"
+
+[[source]]
+build_id = "0123456789ABCDEF"
+version = "1.0.0"
+text = '''
+[Items x2]
+580F0000 00003020
+780F0000 00000008
+640F0000 00000008 00000002
+
+[Counter]
+580F0000 00003020
+780F0000 00000010
+620F0000 00000000 0001FFFF
+'''
+
+[expect]
+file = "convert-wide-value.mncf"

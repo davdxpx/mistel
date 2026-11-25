@@ -509,7 +509,10 @@ public final class Atmosphere {
         }
     }
 
-    /** A plain store: width bytes of value at a place. */
+    /**
+     * A plain store: width bytes of value at a place. Its value is the low bytes of what the code gives: a type 6 store
+     * carries 64 bits, and dmnt writes as many of them as the width says.
+     */
     static final class Store {
         final Place place;
         final int width;
@@ -518,7 +521,7 @@ public final class Atmosphere {
         Store(Place place, int width, long value) {
             this.place = place;
             this.width = width;
-            this.value = value;
+            this.value = width >= 8 ? value : value & ((1L << (8 * width)) - 1);
         }
 
         /** The value's bytes, little-endian, width of them. */
