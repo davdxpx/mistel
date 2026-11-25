@@ -98,6 +98,8 @@ List<Change> back = engine.stop();                        // puts back every pla
 
 The engine reads guest memory only through the `GuestMemory` it is given and changes nothing itself. One thread calls it.
 
+A conversion with a code module looks up a pattern for every place a cheat patches, and an evaluation looks up every pattern a file names. Each such search reads the whole module once, in parts on the processor's cores when the module is large (`ForkJoinPool.commonPool()`), so a conversion or an evaluation for a large game takes seconds, not minutes. Run it off an app's main thread all the same.
+
 Writing and converting:
 
 ```java

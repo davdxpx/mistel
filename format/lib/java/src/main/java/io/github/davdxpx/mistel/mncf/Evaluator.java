@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.IntConsumer;
+import java.util.stream.IntStream;
 
 /**
  * Identifies the build that runs and gives every cheat its state, reason and resolved
@@ -856,7 +858,6 @@ public final class Evaluator {
         for (int k = 0; k < anchorLength - 1; k++) {
             shift[anchor[k] & 0xFF] = anchorLength - 1 - k;
         }
-        int lastAnchorByte = anchor[anchorLength - 1];
         int n = items.length;
         for (long[] range : m.searchRanges(section)) {
             long start = Math.max(0, Math.min(range[0], data.length));
@@ -864,25 +865,66 @@ public final class Evaluator {
             if (end - start < n) {
                 continue;
             }
-            int q = (int) start + anchorAt;
-            int last = (int) end - n + anchorAt;
-            while (q <= last) {
-                byte b = data[q + anchorLength - 1];
-                if (b == lastAnchorByte && headMatches(data, q, anchor) && matches(data, q - anchorAt, items)
-                        && seen.add(q - anchorAt)) {
-                    found.add((long) (q - anchorAt));
-                    if (limit > 0 && found.size() >= limit) {
-                        return found;
+            // A large range is searched in parts on the processor's cores, each part from its own first
+            // place; the parts' places, in order, are the places one scan of the whole range finds.
+            final int first = (int) start + anchorAt;
+            final int last = (int) end - n + anchorAt;
+            final int parts = Patterns.parts(last - first + 1L);
+            final int size = (int) ((last - first + 1L + parts - 1) / parts);
+            final int[][] got = new int[parts][];
+            final int fAt = anchorAt;
+            IntStream each = IntStream.range(0, parts);
+            (parts > 1 ? each.parallel() : each).forEach(new IntConsumer() {
+                @Override
+                public void accept(int i) {
+                    int from = first + i * size;
+                    got[i] = places(data, items, anchor, fAt, shift, from, Math.min(last, from + size - 1), seen, limit);
+                }
+            });
+            for (int[] part : got) {
+                for (int at : part) {
+                    if (seen.add(at)) {
+                        found.add((long) at);
+                        if (limit > 0 && found.size() >= limit) {
+                            return found;
+                        }
                     }
                 }
-                int next = q + shift[b & 0xFF];
-                if (next < q) {
-                    break;
-                }
-                q = next;
             }
         }
         return found;
+    }
+
+    /**
+     * The places of the pattern whose anchor run starts from from to to (a Horspool scan for the run, then the whole
+     * pattern checked), at most limit of them that are not in seen when limit is above 0. seen is only read here.
+     */
+    private static int[] places(byte[] data, int[] items, byte[] anchor, int anchorAt, int[] shift, int from, int to,
+            Set<Integer> seen, int limit) {
+        int anchorLength = anchor.length;
+        int lastAnchorByte = anchor[anchorLength - 1];
+        int[] out = new int[16];
+        int count = 0;
+        int fresh = 0;
+        int q = from;
+        while (q <= to) {
+            byte b = data[q + anchorLength - 1];
+            if (b == lastAnchorByte && headMatches(data, q, anchor) && matches(data, q - anchorAt, items)) {
+                if (count == out.length) {
+                    out = Arrays.copyOf(out, 2 * count);
+                }
+                out[count++] = q - anchorAt;
+                if (!seen.contains(q - anchorAt) && limit > 0 && ++fresh >= limit) {
+                    break;
+                }
+            }
+            int next = q + shift[b & 0xFF];
+            if (next < q) {
+                break;
+            }
+            q = next;
+        }
+        return Arrays.copyOf(out, count);
     }
 
     /** Whether the run's bytes but its last, which the caller has checked, lie at the position. */
