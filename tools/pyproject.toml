@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mistel"
-version = "1.0.0"
-description = "Tools for .mncf cheat files: check, convert, pattern, sign, verify, pack and keygen"
+version = "1.1.0"
+description = "Tools for .mncf cheat files: check, convert, pattern, sign, verify, pack, keygen, release and update-check"
 readme = "README.md"
 license = { text = "GPL-3.0" }
 requires-python = ">=3.11"

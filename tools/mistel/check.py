@@ -19,6 +19,7 @@ def check(path, modules=None, trust=None):
         lines.append(f'warning {w}')
     lines.append(f'signature: {f.signature.result}' + (' by ' + ', '.join(f.signature.signers)
                                                        if f.signature.signers else ''))
+    lines += _versions(f)
     keys = list(f.builds)
     for i, a in enumerate(keys):
         for b in keys[i + 1:]:
@@ -50,6 +51,28 @@ def check(path, modules=None, trust=None):
             lines.append(f'warning {c.id}: {note}')
     lines.append(f'{fit} of {len(f.cheats)} cheats fit the module')
     return ok, lines
+
+
+def _versions(f):
+    """What a runtime sees of the file's versions (spec, section 17), and what an author may have missed."""
+    from mncf import update
+    out = []
+    if f.id is not None:
+        out.append(f'id: {f.id}, version {f.file_version or "none"}' +
+                   (f', new versions from {f.update.host}' if f.update else ''))
+    if f.changes:
+        newest = f.changes[0].version
+        if f.file_version and update.is_version(f.file_version) and update.compare(newest, f.file_version) != 0:
+            out.append(f'warning the newest change entry is for version {newest}, the file is version '
+                       f'{f.file_version}')
+        ids = {c.id for c in f.cheats}
+        for name in f.changes[0].added + f.changes[0].fixed + list(f.changes[0].renamed.values()):
+            if name not in ids:
+                out.append(f'warning the entry for version {newest} names {name}, which the file has no cheat for')
+    if f.update is not None and f.signature.result == 'unknown-key' and not f.signature.verified:
+        out.append('warning the file is signed by a key that is not in its signers, so a runtime can tell that '
+                   'a new version comes from the same signer only if it trusts the key')
+    return out
 
 
 def _overlap(f, a, b):

@@ -8,7 +8,9 @@ The `mistel` command for people who make cheats and mods. Python 3.11 or later; 
 | `mistel convert` | Turns an Atmosphère cheat file into `.mncf`, keeping every cheat, and an `.mncf` file back into an Atmosphère file for one build. Also turns the IPS, IPS32 and IPSwitch patch files of a code module into `.mncf` | Version 1 |
 | `mistel pattern` | Makes the shortest byte pattern that finds one place in a code module | Version 1 |
 | `mistel sign`, `mistel verify` | Signs a file or a pack with an author's key, and checks signatures | Version 1 |
-| `mistel pack` | Puts `.mncf` files into an `.mncp` pack, with its manifest signed if a key is given | Version 1 |
+| `mistel pack` | Puts `.mncf` files into an `.mncp` pack, with its manifest signed if a key is given, and makes a new version of a pack | Version 1 |
+| `mistel release` | Makes a new version of an `.mncf` file: the next version number, a change entry with the cheats added, removed and renamed since the version before, the signatures, and a check that runtimes take it as a new version | Version 1 |
+| `mistel update-check` | Fetches the newest version from a file's `[update]` address, as a runtime does, and says whether runtimes would take it and what players would see | Version 1 |
 | `mistel keygen` | Makes an Ed25519 key pair, never inside a repository | Version 1 |
 | `mistel port` | Gives a file's cheats their places in a new build of the game: the places in code, found again by the code around them in the old build, and the patterns checked | Version 1: places in code |
 | `mistel convert` from the cheat formats of other platforms' emulators and PC cheat tables | | Planned |
@@ -78,6 +80,8 @@ mistel pack example.mncp cheats.mncf other.mncf --name "Example pack" --sign <fo
 
 A secret key file stays on its author's machine. `mistel keygen` refuses to write one inside the Mistel repository or inside any git work tree that does not ignore it.
 
+`mistel sign` writes the key into the file's `signers` before it signs a file that has no signature yet, so that a runtime can check the signature and tell later versions by the same key apart from others without trusting the key ([spec, section 12](../format/spec/mncf-1.md#12-signatures-and-trust)). A file that is signed already keeps its bytes, as a new line would break its signatures; `mistel release` lists every key before it signs.
+
 ## Port to a new build
 
 When a game update moves the code, a cheat that names its place by an offset for one build stops working on the new one. With the main module of a build the file knows and the main module of the new build, both NSO files from your own dump (`<dump>/<title ID>-work`, never from anywhere else), `mistel port` finds each place again:
@@ -91,6 +95,28 @@ mistel port cheats.mncf --old <dump>/<title ID>-work/1.0.2/main --new <dump>/<ti
 - A place found by a pattern needs nothing; the tool checks that the pattern still finds one place.
 - Not ported yet, and named in the report: places in data (a pointer base, a value in main's data), places in regions with an offset for each build, fixed addresses, places in other modules, and raw code that is only for the old build.
 - The new build is added to `builds` with its build ID and `--version`. The file is written beside the old one as `<file>.ported.mncf`, so that you can compare it; `-v` lists every place. Nothing of the game is read but the two main modules, and no keys.
+
+## New versions
+
+When a game update needs a new version of a file ([spec, section 17](../format/spec/mncf-1.md#17-updates)), change the cheats in the file, then:
+
+```bash
+mistel release cheats.mncf --previous released/cheats.mncf --text "Fits game version 1.0.4." \
+    --renamed max-iv=max-ivs --fixed money --sign <folder>/Mine.key
+mistel update-check released/cheats.mncf --new cheats.mncf
+```
+
+- `mistel release` changes the file as text, so that comments and layout stay: it sets `file_version` to the version after the previous one (or `--version`), and adds a `[[changes]]` entry with the date and `--text`. With `--previous`, the version players have now, the entry names the cheats added and removed by their ids, and it says where a removed and an added cheat have the same name, which is often one cheat with a new id: `--renamed old=new` then lets what players set for it follow it. `--fixed` names cheats that work again. An entry that the file has for the version already is kept as the author wrote it.
+- The first time, `--id` gives the file its identity and `--url` the address where its newest version will be. Put the released file at that address after each release: a file in a repository, a release asset, or a site's fixed address.
+- `--sign` signs the new version, with every key in `signers`. Once a version is signed, each later one must be signed by one of its keys; to change keys, give `--sign` twice, with the old key and the new one, for one version. With `--previous`, the new version is checked as a runtime checks it, and not written where a runtime would not take it (`--force` writes it anyway).
+- `mistel update-check` asks the file's address for the newest version, as a runtime does: `https` only, the User-Agent `mncf-update/1`, nothing else about the player, at most 5 redirects, no private addresses. It says whether the version there is newer, the same or older, and what players would see. `--new` checks a local file instead.
+- A pack gets new versions with `mistel pack`: `--id`, `--url` and `--file-version` the first time, then `--previous <old pack>` with `--text` and `--renamed old=new` for files that got a new path. Its id, address and change entries carry over, and the new entry names the files added and removed.
+
+```bash
+mistel pack cheats.mncp a.mncf b.mncf --name "My cheats" --id github.com/someone/cheats-pack \
+    --url https://github.com/someone/cheats/releases/latest/download/cheats.mncp --file-version 1 --sign <key>
+mistel pack cheats-2.mncp a.mncf c.mncf --name "My cheats" --previous cheats.mncp --text "C instead of B." --sign <key>
+```
 
 ## Tests
 
