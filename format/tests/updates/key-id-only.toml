@@ -1,0 +1,7 @@
+about = """The installed file names the key only by its id: its line cannot be checked without the key. A new \
+version whose line names that id and verifies with the key in its own signers counts."""
+installed = "files/v3-one-bare.mncf"
+new = "files/v5-one.mncf"
+
+[expect]
+reason = ""

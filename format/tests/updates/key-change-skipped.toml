@@ -1,0 +1,6 @@
+about = "A player who skipped the version with both keys gets no version signed with the new key only."
+installed = "files/v3-one.mncf"
+new = "files/v6-two.mncf"
+
+[expect]
+reason = "update:signer"

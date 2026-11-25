@@ -54,6 +54,33 @@ changes = eng.stop()                       # puts back every place the cheats ch
 - A cheat's state after a pass is `off` (reason `done` for a once or timed cheat that switched itself off), `on`, `waiting` (for buttons, or `path-broken`) or `refused` with a reason, which can come up while the game runs: `expect-mismatch` when the code at a place changed, `value-out-of-range` for a value the player set.
 - Timed cheats measure time from the `now` the caller gives each pass, or, where it gives none, from the number of passes divided by `rate`.
 
+## Updates
+
+A file's identity, its versions and the address of its newest version (spec, section 17):
+
+```python
+from mncf import update
+
+f.id, f.file_version, f.update, f.changes  # example.org/someone/x, "5", Update(url, host), [Release, ...] newest first
+check = update.check(installed, data, trust)   # is `data` a new version of the loaded file `installed`?
+check.reason                               # '' or update:error:<code>, update:signature, update:game, update:id,
+                                           # update:version, update:signer (Appendix E)
+new = check.file                           # the new file, also where it is not taken, so a manual import can use it
+for r in update.since(new, installed.file_version):            # the change entries to show, newest first
+    print(r.version, r.date, update.text(new, r, 'de'))         # in the player's language where the file has it
+marked_new, marked_fixed = update.marks(new, installed.file_version)
+carried = update.carry(new, installed.file_version, choices, preset='relaxed', kept=['max-iv'])
+carried.choices, carried.preset, carried.ids   # what the player set, under the new ids
+carried.reset, carried.gone, carried.dropped   # values back at their default and why, values and cheats that are gone
+```
+
+- `check` follows section 17.2: the new file loads, its signature is not `invalid` or `revoked`, it is for the same game and has the same `id`, its version is above the installed one, and where the installed file is signed, a key that signed it signs the new one. Load `installed` with the same trust list, so that both signatures are checked against the keys the runtime trusts now.
+- A key in a file's `signers` checks a signature line by a key that is not trusted: `f.signature.verified` maps the key id of each line that verified to its public key, and the result stays `unknown-key`. A line that names such a key and does not verify makes the file `invalid`.
+- `carry` takes the `Choices` the player made for the installed version and gives them for the new one, following `renamed` and `removed` of each change entry above the installed version. A value that no longer fits goes back to its default (`reset`, with `type`, `range` or `choice`). `kept` names cheats the runtime keeps something else for, such as the answer to a crash question; `carried.ids` gives their new ids, `None` where they are gone.
+- Packs: `update.check_pack(installed_pack, data, trust)`, and `update.pairs(old_pack, new_pack)`, which matches each file of the old pack with one of the new pack, by its `id` and game or else by its path.
+- `update.url_host(url)` is the host of an address section 17.3 allows, or `None`; `update.USER_AGENT` is the User-Agent a runtime sends. The library makes no connection itself.
+- What is wrong with these keys is a warning, and the file is still used: `id`, `update`, `changes`, `changes:<version>` and `signers`.
+
 ## Write
 
 ```python

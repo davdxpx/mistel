@@ -1,0 +1,27 @@
+format = "mncf-pack/1"
+name = "Update pack"
+id = "example.org/someone/update-pack"
+file_version = "2"
+
+[update]
+url = "https://example.org/someone/update-pack.mncp"
+
+[[changes]]
+version = "2"
+date = "2026-12-02"
+text = "One file for each game, and a new one."
+added = ["d.mncf"]
+removed = ["c.mncf"]
+renamed = { "old/b.mncf" = "b.mncf", "a.mncf" = "a-new.mncf" }
+
+[[file]]
+path = "a-new.mncf"
+sha256 = "58a57881633c710f6e71baf45e2cea2e121ab030be50fdc20e8f36c37bb3de16"
+
+[[file]]
+path = "b.mncf"
+sha256 = "c6c2f8dfb71e4a2e9fd1252d4825e9bcd6d77f90b6fb711278dc7ee3d5ecf8fa"
+
+[[file]]
+path = "d.mncf"
+sha256 = "cd3b11789bf20f8068846e0ea8c29c3942814e00cbdc7352432f3f4d26eb6dff"

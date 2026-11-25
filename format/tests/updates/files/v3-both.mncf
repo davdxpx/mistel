@@ -1,0 +1,99 @@
+format = "mncf/1"
+name = "Update example"
+id = "example.org/someone/update-example"
+file_version = "3"
+signers = ["11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=", "PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw="]
+
+[update]
+url = "https://example.org/someone/update-example.mncf"
+
+[[changes]]
+version = "3"
+date = "2026-09-01"
+text = "Speed for races."
+added = ["speed"]
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.2"]
+modules = { main = "A1B2C3D4E5F60718" }
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [cheat.values.count]
+  type = "u32"
+  max = 9999
+  default = 999
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = "$count"
+
+[[cheat]]
+id = "max-iv"
+name = "Best values"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u8"
+  value = 31
+
+[[cheat]]
+id = "speed"
+name = "Speed"
+
+  [cheat.values.factor]
+  type = "u8"
+  choices = { "2" = "Twice", "4" = "Four times" }
+  default = 2
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x30 }
+  type = "u8"
+  value = "$factor"
+
+[[cheat]]
+id = "items"
+name = "Items"
+
+  [cheat.values.item]
+  type = "u16"
+  choices = { "1" = "Potion", "2" = "Ether", "3" = "Elixir" }
+  default = 1
+
+  [cheat.values.count]
+  type = "u8"
+  min = 1
+  max = 99
+  default = 99
+
+  [cheat.values.slot]
+  type = "u8"
+  max = 9
+  default = 0
+
+  [cheat.values.extra]
+  type = "u8"
+  default = 0
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x40 }
+  type = "u16"
+  value = "$item"
+
+[[preset]]
+id = "relaxed"
+name = "Relaxed"
+cheats = ["money"]
+
+[[preset]]
+id = "race"
+name = "Race"
+cheats = ["speed"]
+# mncf-signature: ed25519 21fe31dfa154a261 rE1xCLCYduk0CFuoPSUAVDbESs7n0eC/3QroowVZoGisfyPzqhc9NnWaSZnNVKPJTpOitKRgzNrIqu3GBDbbDQ==
+# mncf-signature: ed25519 39f713d0a644253f 8PgBLoHymQV1f4TI+ziglpDnsyQ2kIRE3jOLm87BZKLqLJAbqYBztWKIHfJqn4a9vMhou7A3CdDAlxS79qt4Dw==

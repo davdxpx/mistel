@@ -13,8 +13,9 @@
 #include <stdlib.h>
 
 static const char *const KNOWN_EXTENSIONS[] = {"raw/1", "arm64-imm/1"};
-static const char *const FILE_KEYS[] = {"format", "name",   "authors", "about",  "file_version", "language", "origin",
-                                        "extensions", "game", "builds", "cheat", "choices", "preset", "i18n"};
+static const char *const FILE_KEYS[] = {"format", "name", "id", "authors", "about", "file_version", "language",
+                                        "origin", "extensions", "signers", "update", "changes", "game", "builds",
+                                        "cheat", "choices", "preset", "i18n"};
 
 typedef struct schema_ctx {
     mncf_file *f;
@@ -26,9 +27,7 @@ typedef struct schema_ctx {
     const char *unknown_listed;   /* the first listed extension this reader does not know */
     mn_cheat *cheat;
     const char *problem;
-    /* the warnings, as they are found */
-    const char **warnings;
-    size_t warning_count, warning_cap;
+    mn_warnings warnings;         /* as they are found */
 } schema_ctx;
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -410,6 +409,35 @@ int mn_choices_have(const mncf_value_spec *s, const mn_num *n)
         }
     }
     return 0;
+}
+
+int mn_cheat_id_valid(const char *s, size_t n)
+{
+    return is_id(s, n);
+}
+
+int mn_value_fit(const mncf_value_spec *s, const mn_num *v)
+{
+    int ok;
+    if (s->type == MNCF_TYPE_BOOL) {
+        ok = v->kind == MNCF_NUMBER_BOOL;
+    } else if (mn_type_is_float(s->type)) {
+        ok = (v->kind == MNCF_NUMBER_INT || (v->kind == MNCF_NUMBER_FLOAT && v->real == v->real)) &&
+             mn_fits(s->type, v);
+    } else {
+        ok = v->kind == MNCF_NUMBER_INT && mn_fits(s->type, v);
+    }
+    if (!ok) {
+        return MN_FIT_TYPE;
+    }
+    if ((s->min.kind != MNCF_NUMBER_NONE && mn_num_cmp(v, &s->min) == -1) ||
+        (s->max.kind != MNCF_NUMBER_NONE && mn_num_cmp(v, &s->max) == 1)) {
+        return MN_FIT_RANGE;
+    }
+    if (s->choices != NULL && !mn_choices_have(s, v)) {
+        return MN_FIT_CHOICE;
+    }
+    return MN_FIT_OK;
 }
 
 int mn_value_in_spec(const mncf_value_spec *s, const mn_num *n)
@@ -1631,15 +1659,37 @@ static int check_cheat(schema_ctx *c, mn_cheat *ch, const mncf_toml *t)
 
 /* ---- The file --------------------------------------------------------------------------------------- */
 
+int mn_warn(mn_arena *ar, mn_warnings *w, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+    char *text;
+    va_start(ap, fmt);
+    n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        ar->failed = 1;
+        return 0;
+    }
+    text = (char *)mn_arena_alloc(ar, (size_t)n + 1);
+    if (text == NULL) {
+        return 0;
+    }
+    va_start(ap, fmt);
+    vsnprintf(text, (size_t)n + 1, fmt, ap);
+    va_end(ap);
+    if (MN_GROW(ar, w->items, w->count, w->cap) == NULL) {
+        return 0;
+    }
+    w->items[w->count++] = text;
+    return 1;
+}
+
 /* Adds a warning: the prefix and the key, and the second key after a dot where it is given. */
 static int warn(schema_ctx *c, const char *prefix, const char *a, const char *b)
 {
-    char *w = b != NULL ? mn_arena_printf(c->ar, "%s%s.%s", prefix, a, b) : mn_arena_printf(c->ar, "%s%s", prefix, a);
-    if (w == NULL || MN_GROW(c->ar, c->warnings, c->warning_count, c->warning_cap) == NULL) {
-        return 0;
-    }
-    c->warnings[c->warning_count++] = w;
-    return 1;
+    return b != NULL ? mn_warn(c->ar, &c->warnings, "%s%s.%s", prefix, a, b)
+                     : mn_warn(c->ar, &c->warnings, "%s%s", prefix, a);
 }
 
 static int file_fail(mncf_error *err, mncf_status status, const char *code, const char *message)
@@ -1846,6 +1896,18 @@ int mn_build_file(mncf_file *f, const mncf_toml *doc, mncf_error *err)
             goto nomem;
         }
         return schema_fail(err, "authors", "`authors` must be an array of strings");
+    }
+    {
+        mn_update_keys keys;
+        if (!mn_read_signers(ar, doc, &c.warnings, &info->signers, &info->signer_count) ||
+            !mn_read_update_keys(ar, doc, mn_cheat_id_valid, &c.warnings, &keys)) {
+            goto nomem;
+        }
+        info->id = keys.id;
+        info->update_url = keys.update_url;
+        info->update_host = keys.update_host;
+        info->changes = keys.changes;
+        info->change_count = keys.change_count;
     }
 
     if (has(doc, "origin")) {
@@ -2135,8 +2197,8 @@ int mn_build_file(mncf_file *f, const mncf_toml *doc, mncf_error *err)
         info->cheats = pub;
         info->cheat_count = f->cheat_count;
     }
-    info->warnings = c.warnings;
-    info->warning_count = c.warning_count;
+    info->warnings = c.warnings.items;
+    info->warning_count = c.warnings.count;
     if (ar->failed) {
         goto nomem;
     }

@@ -6,10 +6,10 @@ import zipfile
 import zlib
 from dataclasses import dataclass, field
 
-from . import MAX_FILE, decode, parse_toml, signature
+from . import MAX_FILE, decode, parse_toml, signature, update
 from .model import MncfError
 
-PACK_KEYS = ('format', 'name', 'authors', 'about', 'file_version', 'file')
+PACK_KEYS = ('format', 'name', 'id', 'authors', 'about', 'file_version', 'signers', 'update', 'changes', 'file')
 MAX_ENTRIES = 4096                 # entries of a pack
 MAX_TOTAL = 256 * 1024 * 1024      # bytes of all the entries a reader reads from one pack
 _SHA256 = re.compile(r'^[0-9a-f]{64}\Z')
@@ -31,6 +31,10 @@ class Pack:
     authors: list = field(default_factory=list)
     about: str = None
     file_version: str = None
+    id: str = None                 # the pack's identity across its versions (section 17.6)
+    signers: list = field(default_factory=list)
+    update: object = None          # an update.Update, or None
+    changes: list = field(default_factory=list)      # update.Release entries, newest first; the lists name paths
     warnings: list = field(default_factory=list)
 
     @property
@@ -96,7 +100,7 @@ def read_pack(data, trust=None):
     name = doc.get('name')
     if not isinstance(name, str):
         raise MncfError('schema:name', '`name` must be a string')
-    pack = Pack(name, signature.check(raw, trust), [], warnings=warnings)
+    pack = Pack(name, None, [], warnings=warnings)
     for key in ('about', 'file_version'):
         if key in doc:
             if not isinstance(doc[key], str):
@@ -106,6 +110,10 @@ def read_pack(data, trust=None):
         if not isinstance(doc['authors'], list) or not all(isinstance(a, str) for a in doc['authors']):
             raise MncfError('schema:authors', '`authors` must be an array of strings')
         pack.authors = list(doc['authors'])
+    pack.signers = update.read_signers(doc, warnings)
+    keys = update.read_keys(doc, warnings, item=lambda x: isinstance(x, str) and valid_path(x) and x != 'pack.toml')
+    pack.id, pack.update, pack.changes = keys['id'], keys['update'], keys['changes']
+    pack.signature = signature.check(raw, trust, pack.signers)
     entries = doc.get('file')
     if not isinstance(entries, list) or not entries or not all(isinstance(e, dict) for e in entries):
         raise MncfError('schema:file', 'the manifest needs at least one [[file]]')

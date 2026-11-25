@@ -1,0 +1,16 @@
+about = "The same pack again is no new version."
+
+[installed_zip]
+"pack.toml" = "files/pack-v2.toml"
+"a-new.mncf" = "files/pa.mncf"
+"b.mncf" = "files/pb.mncf"
+"d.mncf" = "files/pd.mncf"
+
+[new_zip]
+"pack.toml" = "files/pack-v2.toml"
+"a-new.mncf" = "files/pa.mncf"
+"b.mncf" = "files/pb.mncf"
+"d.mncf" = "files/pd.mncf"
+
+[expect]
+reason = "update:version"

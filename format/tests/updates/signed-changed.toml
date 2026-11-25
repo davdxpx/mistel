@@ -1,0 +1,6 @@
+about = "A new version changed after signing is invalid: the key in its signers does not verify it."
+installed = "files/v3-one.mncf"
+new = "files/v5-one-changed.mncf"
+
+[expect]
+reason = "update:signature"

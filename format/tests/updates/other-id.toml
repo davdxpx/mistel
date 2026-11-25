@@ -1,0 +1,24 @@
+about = "A file with another id is another file, not a new version."
+installed = "files/v3.mncf"
+new_text = '''
+format = "mncf/1"
+name = "Update example"
+id = "example.org/someone/other-example"
+file_version = "9"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 5
+'''
+
+[expect]
+reason = "update:id"

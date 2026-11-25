@@ -1,0 +1,16 @@
+about = "A signed pack gets no new version signed by another key."
+
+[installed_zip]
+"pack.toml" = "files/pack-v1-one.toml"
+"a.mncf" = "files/pa.mncf"
+"old/b.mncf" = "files/pb.mncf"
+"c.mncf" = "files/pc.mncf"
+
+[new_zip]
+"pack.toml" = "files/pack-v2-two.toml"
+"a-new.mncf" = "files/pa.mncf"
+"b.mncf" = "files/pb.mncf"
+"d.mncf" = "files/pd.mncf"
+
+[expect]
+reason = "update:signer"

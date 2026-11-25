@@ -3,7 +3,7 @@ if(POLICY CMP0092)
     cmake_policy(SET CMP0092 NEW)    # no /W3 in the default flags of MSVC, so that /W4 is the only level
 endif()
 
-project(mncf VERSION 1.0.0 LANGUAGES C)
+project(mncf VERSION 1.1.0 LANGUAGES C)
 
 option(MNCF_TESTS "Build the unit tests and the conformance runner" ON)
 option(MNCF_AMALGAMATION "Build the library from its single-file amalgamation (mncf.c and mncf.h)" OFF)
@@ -13,7 +13,7 @@ option(MNCF_WERROR "Treat warnings as errors" OFF)
 set(MNCF_HEADERS src/internal.h src/encode.h src/model.h src/evaluate.h src/zip.h)
 set(MNCF_SOURCES
     src/util.c src/toml.c src/crypto.c src/signature.c src/platform.c src/encode.c
-    src/schema.c src/load.c src/evaluate.c src/engine.c src/zip.c src/pack.c)
+    src/schema.c src/load.c src/evaluate.c src/engine.c src/zip.c src/pack.c src/update.c)
 
 # The amalgamation: include/mncf.h and every source in one file, made by tools/amalgamate.cmake.
 set(MNCF_AMALGAMATION_DIR ${CMAKE_CURRENT_BINARY_DIR}/amalgamation)

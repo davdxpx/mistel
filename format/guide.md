@@ -187,3 +187,29 @@ A runtime shows the reason a cheat is refused. The ones you will meet most:
 - One file per game, for all its builds.
 - Several files in one pack: `mistel pack cheats.mncp *.mncf --name "My cheats"`.
 - A signature says who made a file and that it was not changed: `mistel sign cheats.mncf --key <your key>`. It is optional, and an unsigned file is used like any other. A runtime marks a file as verified only for keys it trusts.
+
+## 12. Keep it up to date
+
+When the game gets an update, players need the version of your file that knows the new build. Give the file an identity and an address, and a runtime can bring them each new version ([spec, section 17](spec/mncf-1.md#17-updates)):
+
+```toml
+id = "github.com/someone/example-quest"
+file_version = "4"
+
+[update]
+url = "https://raw.githubusercontent.com/someone/example-quest/main/example-quest.mncf"
+
+[[changes]]
+version = "4"
+date = "2026-12-02"
+text = "Fits game version 1.0.4. Money works again."
+added = ["shiny-odds"]
+fixed = ["money"]
+renamed = { "max-iv" = "max-ivs" }
+```
+
+- `id` never changes. A domain or a repository you control, with a path, keeps it yours.
+- `file_version` is numbers with dots, and each new version is above the one before: a runtime never takes a version that is not.
+- `url` is the address of the file itself, always the newest version: a file in a repository, or a release asset. Use `https`.
+- Write one `[[changes]]` entry for each version. Keep cheat ids the same where you can. Where you rename a cheat, say so in `renamed`, so that what players set for it follows it.
+- Once you sign a version, sign every later one with the same key, and list your public key in `signers`, so that a runtime can tell the new version comes from you. To change keys, sign one version with both keys.

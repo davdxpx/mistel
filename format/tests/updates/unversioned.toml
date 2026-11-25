@@ -1,0 +1,70 @@
+about = """A file held without a version counts as below every version: every entry is shown and followed, and \
+a manual import of the file the player had keeps what they set."""
+installed_text = '''
+format = "mncf/1"
+name = "Unversioned"
+id = "example.org/someone/unversioned"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "old"
+name = "Old"
+
+  [cheat.values.n]
+  type = "s16"
+  min = -10
+  max = 10
+  default = 0
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "s16"
+  value = "$n"
+'''
+new_text = '''
+format = "mncf/1"
+name = "Unversioned"
+id = "example.org/someone/unversioned"
+file_version = "1.1"
+
+[[changes]]
+version = "1.1"
+renamed = { old = "new" }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "new"
+name = "New"
+
+  [cheat.values.n]
+  type = "s16"
+  min = -5
+  max = 10
+  default = 0
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "s16"
+  value = "$n"
+'''
+
+[settings]
+on = ["old"]
+values = { "old.n" = -7 }
+
+[expect]
+reason = ""
+from = ""
+to = "1.1"
+since = ["1.1"]
+
+[expect.settings]
+on = ["new"]
+ids = { "old" = "new" }
+reset = { "new.n" = "range" }

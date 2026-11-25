@@ -153,6 +153,7 @@ class SignatureResult:
     result: str                   # verified, unsigned, unknown-key, invalid, revoked
     signers: list = field(default_factory=list)     # names of the trusted keys that signed it
     key_ids: list = field(default_factory=list)     # key ids of every signature line, in order
+    verified: dict = field(default_factory=dict)    # key id -> public key of each line that verified (section 17.2)
 
 
 @dataclass
@@ -168,6 +169,10 @@ class MncfFile:
     authors: list = field(default_factory=list)
     about: str = None
     file_version: str = None
+    id: str = None                 # the file's identity across its versions (section 17)
+    signers: list = field(default_factory=list)      # public keys of `signers` (section 12)
+    update: object = None          # an update.Update, or None
+    changes: list = field(default_factory=list)      # update.Release entries, newest first
     language: str = 'en'
     origin: dict = None            # format and name of the source a converter read
     required: list = field(default_factory=list)

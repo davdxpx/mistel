@@ -1,6 +1,7 @@
 """Writes `.mncf` text: any document as `load` reads it (a dict of TOML values), in one fixed layout.
 
-The layout follows the spec's examples: the file's own keys, then `[game]`, the builds, the choice lists, every cheat
+The layout follows the spec's examples: the file's own keys, its `[update]` and change entries, then `[game]`, the
+builds, the choice lists, every cheat
 with its values and operations as indented sub-tables, the presets and the translations. Keys come in the order the
 spec lists them and keys it does not define after them, in their own order. Locations, offsets, addresses and path
 steps are written in hexadecimal, other whole numbers in decimal up to 0xFFFF and in hexadecimal above. Writing a
@@ -9,8 +10,10 @@ file that was read gives the same file again, without its signature lines.
 import math
 import re
 
-TOP = ('format', 'name', 'authors', 'about', 'file_version', 'language', 'origin', 'extensions')
-TABLES = ('game', 'builds', 'choices', 'cheat', 'preset', 'i18n')
+TOP = ('format', 'name', 'id', 'authors', 'about', 'file_version', 'language', 'origin', 'extensions', 'signers')
+TABLES = ('update', 'changes', 'game', 'builds', 'choices', 'cheat', 'preset', 'i18n')
+UPDATE = ('url',)
+CHANGES = ('version', 'date', 'text', 'added', 'fixed', 'removed', 'renamed')
 GAME = ('platform', 'id', 'name')
 BUILD = ('version', 'modules')
 CHEAT = ('id', 'name', 'about', 'group', 'tags', 'default', 'master', 'run', 'duration', 'hold', 'toggle', 'press',
@@ -22,7 +25,7 @@ OPS = {'patch': ('at', 'expect', 'bytes', 'encode', 'asm'), 'write': ('at', 'typ
 INLINE = {'at': ('module', 'region', 'address', 'find', 'offset', 'offsets', 'section', 'path'),
           'function': ('module', 'region', 'address', 'find', 'offset', 'offsets', 'section', 'path'),
           'value': ('at', 'type'), 'encode': ('insn', 'width', 'rd', 'value'), 'asm': ('expect', 'bytes'),
-          'origin': ('format', 'name', 'site'), 'extensions': ('required', 'optional'), 'modules': ()}
+          'origin': ('format', 'name', 'site'), 'extensions': ('required', 'optional'), 'modules': (), 'renamed': ()}
 PRESET = ('id', 'name', 'cheats', 'values')
 HEX_KEYS = {'offset', 'address', 'path', 'offsets'}
 MULTILINE = {'code', 'about'}
@@ -135,6 +138,10 @@ def dumps(doc):
                 k not in TABLES and not (isinstance(v, dict) and k not in INLINE) and not _is_table_array(v):
             out.append(_value_line(k, v))
     shaped = {k: doc[k] for k in TABLES if k in doc and _shaped(k, doc[k])}
+    if 'update' in shaped:
+        _plain(out, '[update]', shaped['update'], UPDATE)
+    for c in shaped.get('changes', []):
+        _plain(out, '[[changes]]', c, CHANGES)
     game = shaped.get('game')
     if game is not None:
         out += ['', '[game]'] + [_value_line(k, game[k]) for k in _ordered(game, GAME)]
@@ -161,9 +168,14 @@ def dumps(doc):
     return '\n'.join(out) + '\n'
 
 
+def _plain(out, header, table, order):
+    """A table of values under its header, tables in it as inline tables."""
+    out += ['', header] + [_value_line(k, table[k]) for k in _ordered(table, order)]
+
+
 def _shaped(k, v):
     """Whether a top-level table of the layout has the shape the layout writes; else it is written as a value."""
-    if k in ('cheat', 'preset'):
+    if k in ('cheat', 'preset', 'changes'):
         return _is_table_array(v)
     if k in ('builds', 'choices'):
         return isinstance(v, dict) and all(isinstance(x, dict) for x in v.values())

@@ -1231,7 +1231,7 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
     size_t range_count = 0, range_cap = 0;
     hook_in *hooks = NULL;
     size_t hook_count = 0, hook_cap = 0;
-    marked *marks = NULL;
+    marked *spots = NULL;
     size_t mark_count = 0, mark_cap = 0;
     code_change *changes = NULL;
     size_t change_count = 0, change_cap = 0;
@@ -1380,11 +1380,11 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
             for (k = 0; k < ranges[i].len; k++) {
                 uint64_t a = ranges[i].address + k;
                 if (!bm_get(&is_marked, a, NULL)) {
-                    if (!bm_put(&e->pass, &is_marked, a, 1) || MN_GROW(&e->pass, marks, mark_count, mark_cap) == NULL) {
+                    if (!bm_put(&e->pass, &is_marked, a, 1) || MN_GROW(&e->pass, spots, mark_count, mark_cap) == NULL) {
                         goto nomem;
                     }
-                    marks[mark_count].address = a;
-                    marks[mark_count].patch = 1;
+                    spots[mark_count].address = a;
+                    spots[mark_count].patch = 1;
                     mark_count++;
                 }
             }
@@ -1392,17 +1392,17 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
         for (i = 0; i < e->kept.cap; i++) {
             const kept_slot *s = &e->kept.slots[i];
             if (s->state == 1 && !bm_get(&want, s->address, NULL)) {
-                if (MN_GROW(&e->pass, marks, mark_count, mark_cap) == NULL) {
+                if (MN_GROW(&e->pass, spots, mark_count, mark_cap) == NULL) {
                     goto nomem;
                 }
-                marks[mark_count].address = s->address;
-                marks[mark_count].patch = 0;
+                spots[mark_count].address = s->address;
+                spots[mark_count].patch = 0;
                 mark_count++;
             }
         }
     }
     if (mark_count > 1) {
-        qsort(marks, mark_count, sizeof *marks, cmp_marked);
+        qsort(spots, mark_count, sizeof *spots, cmp_marked);
     }
     {
         size_t start = 0;
@@ -1410,8 +1410,8 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
             size_t end = start + 1;
             int differs = 0;
             uint8_t *bytes;
-            while (end < mark_count && marks[end].patch == marks[start].patch &&
-                   marks[end].address > marks[end - 1].address && marks[end].address - marks[end - 1].address == 1) {
+            while (end < mark_count && spots[end].patch == spots[start].patch &&
+                   spots[end].address > spots[end - 1].address && spots[end].address - spots[end - 1].address == 1) {
                 end++;
             }
             bytes = (uint8_t *)mn_arena_alloc(&e->pass, end - start);
@@ -1419,10 +1419,10 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
                 goto nomem;
             }
             for (k = start; k < end; k++) {
-                const kept_slot *s = kept_find(&e->kept, marks[k].address);
+                const kept_slot *s = kept_find(&e->kept, spots[k].address);
                 uint8_t target = 0;
-                if (marks[k].patch) {
-                    bm_get(&want, marks[k].address, &target);
+                if (spots[k].patch) {
+                    bm_get(&want, spots[k].address, &target);
                 } else if (s != NULL) {
                     target = s->kept;
                 }
@@ -1438,10 +1438,10 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
                 }
                 cc = &changes[change_count++];
                 memset(cc, 0, sizeof *cc);
-                cc->address = marks[start].address;
+                cc->address = spots[start].address;
                 cc->order = 0;
-                cc->change.kind = marks[start].patch ? MNCF_CHANGE_PATCH : MNCF_CHANGE_RESTORE;
-                cc->change.address = marks[start].address;
+                cc->change.kind = spots[start].patch ? MNCF_CHANGE_PATCH : MNCF_CHANGE_RESTORE;
+                cc->change.address = spots[start].address;
                 cc->change.bytes = bytes;
                 cc->change.size = end - start;
             }
@@ -1449,13 +1449,13 @@ static int code(mncf_engine *e, mncf_change **out, size_t *out_count)
         }
     }
     for (i = 0; i < mark_count; i++) {
-        kept_slot *s = kept_find(&e->kept, marks[i].address);
-        if (marks[i].patch) {
+        kept_slot *s = kept_find(&e->kept, spots[i].address);
+        if (spots[i].patch) {
             if (s != NULL) {
-                bm_get(&want, marks[i].address, &s->now);
+                bm_get(&want, spots[i].address, &s->now);
             }
         } else {
-            kept_del(&e->kept, marks[i].address);
+            kept_del(&e->kept, spots[i].address);
         }
     }
     /* Hooks: the last cheat in file order wins at an address. */

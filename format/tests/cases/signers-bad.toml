@@ -1,0 +1,30 @@
+about = "A signers key that is not an array of public keys, each once, is ignored with a warning."
+text = '''
+format = "mncf/1"
+name = "Signers"
+signers = ["11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=", "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="]
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 5
+'''
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x1000
+
+[expect]
+warnings = ["signers"]
+
+[expect.cheat.money]
+state = "off"
+reason = ""

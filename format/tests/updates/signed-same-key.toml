@@ -1,0 +1,8 @@
+about = """Signed by the same key: the key is in the files' signers, so no trust list is needed to see that the new \
+version comes from the same signer."""
+installed = "files/v3-one.mncf"
+new = "files/v5-one.mncf"
+
+[expect]
+reason = ""
+since = ["5", "4"]

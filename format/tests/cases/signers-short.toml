@@ -1,0 +1,30 @@
+about = "A key in signers must be 32 bytes in standard base64."
+text = '''
+format = "mncf/1"
+name = "Signers"
+signers = ["QUJD"]
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 5
+'''
+
+[env.regions.heap]
+base = 0x10000000
+size = 0x1000
+
+[expect]
+warnings = ["signers"]
+
+[expect.cheat.money]
+state = "off"
+reason = ""

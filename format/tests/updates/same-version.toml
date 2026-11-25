@@ -1,0 +1,9 @@
+about = "The same version is not a new one."
+installed = "files/v5.mncf"
+new = "files/v5.mncf"
+
+[expect]
+reason = "update:version"
+from = "5"
+to = "5"
+since = []

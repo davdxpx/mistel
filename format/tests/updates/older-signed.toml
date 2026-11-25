@@ -1,0 +1,6 @@
+about = "Also not an older version signed by the same key."
+installed = "files/v5-one.mncf"
+new = "files/v3-one.mncf"
+
+[expect]
+reason = "update:version"

@@ -1,0 +1,7 @@
+about = "An answer that is not an .mncf file is refused with its error."
+installed = "files/v3.mncf"
+new_text = "<html>Not found</html>"
+
+[expect]
+reason = "update:error:toml"
+to = ""

@@ -1,0 +1,9 @@
+about = "A new version signed by a revoked key is refused for its signature, before anything else."
+installed = "files/v3-both.mncf"
+new = "files/v5-both.mncf"
+
+[trust]
+revoked = ["39f713d0a644253f"]
+
+[expect]
+reason = "update:signature"

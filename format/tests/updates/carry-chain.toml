@@ -1,0 +1,103 @@
+about = """Ids follow every entry above the version the player had, in version order: a rename after a rename, \
+two cheats that swap ids, and a cheat that was removed, whose id a later version gives to a new cheat. What the player \
+set for the removed one is dropped, and the new cheat is marked new."""
+installed_text = '''
+format = "mncf/1"
+name = "Chain"
+id = "example.org/someone/chain"
+file_version = "1"
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "a"
+name = "A"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 1
+'''
+new_text = '''
+format = "mncf/1"
+name = "Chain"
+id = "example.org/someone/chain"
+file_version = "5"
+
+[[changes]]
+version = "2"
+renamed = { a = "a2" }
+
+[[changes]]
+version = "3"
+renamed = { a2 = "a3", b = "c", c = "b" }
+
+[[changes]]
+version = "4"
+removed = ["a3"]
+
+[[changes]]
+version = "5"
+added = ["a3"]
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[[cheat]]
+id = "a3"
+name = "A new cheat"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u8"
+  value = 1
+
+[[cheat]]
+id = "b"
+name = "B"
+
+  [cheat.values.v]
+  type = "u8"
+  default = 0
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x20 }
+  type = "u8"
+  value = "$v"
+
+[[cheat]]
+id = "c"
+name = "C"
+
+  [cheat.values.v]
+  type = "u8"
+  default = 0
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x30 }
+  type = "u8"
+  value = "$v"
+'''
+
+[settings]
+on = ["a", "b"]
+off = ["c"]
+values = { "b.v" = 1, "c.v" = 2 }
+
+[expect]
+reason = ""
+from = "1"
+to = "5"
+since = ["5", "4", "3", "2"]
+new = ["a3"]
+fixed = []
+
+[expect.settings]
+on = ["c"]
+off = ["b"]
+values = { "c.v" = 1, "b.v" = 2 }
+ids = { "a" = "", "b" = "c", "c" = "b" }
+dropped = ["a"]

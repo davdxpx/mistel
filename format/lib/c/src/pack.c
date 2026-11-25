@@ -4,15 +4,6 @@
 
 #include <stdio.h>
 
-struct mncf_pack {
-    mn_alloc alloc;
-    mn_arena arena;
-    mncf_pack_info info;
-    uint8_t **datas;              /* the bytes of each file whose status is ok, on the allocator */
-    size_t *sizes;
-    size_t count;
-};
-
 void mncf_pack_free(mncf_pack *p)
 {
     mn_alloc a;
@@ -49,6 +40,11 @@ static int valid_path(const char *s, size_t n)
         }
     }
     return 1;
+}
+
+int mn_pack_path_valid(const char *s, size_t n)
+{
+    return valid_path(s, n) && !mn_streqz(s, n, "pack.toml");
 }
 
 static int lower_hex64(const char *s, size_t n)
@@ -152,7 +148,8 @@ static int schema_error(mncf_error *err, const char *key, const char *message)
 mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, const mncf_allocator *alloc,
                         uint64_t max_total, mncf_error *err)
 {
-    static const char *const PACK_KEYS[] = {"format", "name", "authors", "about", "file_version", "file"};
+    static const char *const PACK_KEYS[] = {"format",       "name",    "id",     "authors", "about",
+                                            "file_version", "signers", "update", "changes", "file"};
     mn_alloc a = mn_alloc_of(alloc);
     mncf_pack *p;
     mn_zip z;
@@ -163,12 +160,12 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
     size_t raw_len = 0;
     budget b;
     const mncf_toml *doc, *v, *files;
-    const char **warnings = NULL;
-    size_t warning_count = 0, warning_cap = 0;
+    mn_warnings warnings;
     mncf_pack_file *list;
     uint32_t *seen_paths = NULL;
     size_t seen_cap = 0;
     mn_error_clear(err);
+    memset(&warnings, 0, sizeof warnings);
     if (data == NULL && size > 0) {
         mn_error(err, MNCF_ERR_ARGUMENT, "argument", "no bytes given");
         return NULL;
@@ -236,12 +233,8 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
         for (k = 0; k < sizeof PACK_KEYS / sizeof PACK_KEYS[0]; k++) {
             known |= mn_streqz(doc->u.t.e[i].key.p, doc->u.t.e[i].key.n, PACK_KEYS[k]);
         }
-        if (!known) {
-            char *w = mn_arena_printf(&p->arena, "unknown-key:%s", doc->u.t.e[i].key.p);
-            if (w == NULL || MN_GROW(&p->arena, warnings, warning_count, warning_cap) == NULL) {
-                goto nomem;
-            }
-            warnings[warning_count++] = w;
+        if (!known && !mn_warn(&p->arena, &warnings, "unknown-key:%s", doc->u.t.e[i].key.p)) {
+            goto nomem;
         }
     }
     v = mn_toml_getz(doc, "name");
@@ -250,11 +243,7 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
         goto fail;
     }
     p->info.name = v->u.s.p;
-    if (!mn_signature_check(raw, raw_len, trust, &p->arena, &p->info.signature)) {
-        goto nomem;
-    }
-    p->info.usable = p->info.signature.result != MNCF_SIGNATURE_INVALID &&
-                     p->info.signature.result != MNCF_SIGNATURE_REVOKED;
+    p->doc = doc;
     for (i = 0; i < 2; i++) {
         const char *key = i == 0 ? "about" : "file_version";
         v = mn_toml_getz(doc, key);
@@ -292,6 +281,25 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
         p->info.authors = authors;
         p->info.author_count = v->u.a.n;
     }
+    {
+        mn_update_keys keys;
+        if (!mn_read_signers(&p->arena, doc, &warnings, &p->info.signers, &p->info.signer_count) ||
+            !mn_read_update_keys(&p->arena, doc, mn_pack_path_valid, &warnings, &keys)) {
+            goto nomem;
+        }
+        p->info.id = keys.id;
+        p->info.update_url = keys.update_url;
+        p->info.update_host = keys.update_host;
+        p->info.changes = keys.changes;
+        p->info.change_count = keys.change_count;
+    }
+    /* After `signers`, so that a key of the manifest's own can check a line (section 12). */
+    if (!mn_signature_check(raw, raw_len, trust, p->info.signers, p->info.signer_count, &p->arena,
+                            &p->info.signature)) {
+        goto nomem;
+    }
+    p->info.usable = p->info.signature.result != MNCF_SIGNATURE_INVALID &&
+                     p->info.signature.result != MNCF_SIGNATURE_REVOKED;
     files = mn_toml_getz(doc, "file");
     {
         int good = mn_toml_is(files, MNCF_TOML_ARRAY) && files->u.a.n > 0;
@@ -338,7 +346,7 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
                 }
                 slot = (slot + 1) & (seen_cap - 1);
             }
-            if (!valid_path(path->u.s.p, path->u.s.n) || mn_streqz(path->u.s.p, path->u.s.n, "pack.toml") || seen) {
+            if (!mn_pack_path_valid(path->u.s.p, path->u.s.n) || seen) {
                 char code[300];
                 snprintf(code, sizeof code, "path:%s", path->u.s.p);
                 mn_error(err, MNCF_ERR_PATH, code, "a path that is not usable in a pack");
@@ -351,12 +359,9 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
         }
         for (j = 0; j < e->u.t.n; j++) {
             if (!mn_streqz(e->u.t.e[j].key.p, e->u.t.e[j].key.n, "path") &&
-                !mn_streqz(e->u.t.e[j].key.p, e->u.t.e[j].key.n, "sha256")) {
-                char *w = mn_arena_printf(&p->arena, "unknown-key:file.%s", e->u.t.e[j].key.p);
-                if (w == NULL || MN_GROW(&p->arena, warnings, warning_count, warning_cap) == NULL) {
-                    goto nomem;
-                }
-                warnings[warning_count++] = w;
+                !mn_streqz(e->u.t.e[j].key.p, e->u.t.e[j].key.n, "sha256") &&
+                !mn_warn(&p->arena, &warnings, "unknown-key:file.%s", e->u.t.e[j].key.p)) {
+                goto nomem;
             }
         }
         {
@@ -402,8 +407,8 @@ mncf_pack *mn_pack_read(const void *data, size_t size, const mncf_trust *trust, 
             }
         }
     }
-    p->info.warnings = warnings;
-    p->info.warning_count = warning_count;
+    p->info.warnings = warnings.items;
+    p->info.warning_count = warnings.count;
     mn_free(&a, raw, raw_len);
     if (p->arena.failed) {
         p->arena.failed = 0;

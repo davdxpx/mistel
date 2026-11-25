@@ -1577,9 +1577,41 @@ static uint8_t *make_zip(const char **names, const uint8_t **datas, const size_t
     return z;
 }
 
+/* The bytes of a case's ZIP table: text, exact hex, or entries made from files of the folder. */
+static const uint8_t *zip_bytes(const mncf_toml *z, const char *folder, size_t *size)
+{
+    const mncf_toml *text = mncf_toml_get(z, "text"), *hex = mncf_toml_get(z, "hex");
+    size_t i, n;
+    const char **names;
+    const uint8_t **datas;
+    size_t *sizes;
+    if (text != NULL) {
+        return (const uint8_t *)tstr(text, size);
+    }
+    if (hex != NULL) {
+        const char *s = tstr(hex, &n);
+        return from_hex(s != NULL ? s : "", s != NULL ? n : 0, size);       /* the exact bytes of a pack */
+    }
+    n = mncf_toml_count(z);
+    names = (const char **)xalloc((n + 1) * sizeof *names);
+    datas = (const uint8_t **)xalloc((n + 1) * sizeof *datas);
+    sizes = (size_t *)xalloc((n + 1) * sizeof *sizes);
+    for (i = 0; i < n; i++) {
+        size_t kn;
+        const char *key = mncf_toml_key(z, i, &kn);
+        char *path = xprintf("%s/%s", folder, tstrz(mncf_toml_at(z, i)));
+        names[i] = xstrndup(key, kn);
+        datas[i] = (const uint8_t *)read_file(path, &sizes[i]);
+        if (datas[i] == NULL) {
+            fprintf(stderr, "conformance: cannot read %s\n", path);
+            exit(2);
+        }
+    }
+    return make_zip(names, datas, sizes, n, size);
+}
+
 static jv *pack_results(const mncf_toml *c, const char *folder)
 {
-    const mncf_toml *z = mncf_toml_get(c, "zip"), *text = mncf_toml_get(z, "text"), *hex = mncf_toml_get(z, "hex");
     const uint8_t *data;
     size_t size, i;
     mncf_trust *trust = trust_list(c);
@@ -1587,30 +1619,7 @@ static jv *pack_results(const mncf_toml *c, const char *folder)
     mncf_pack *pack;
     const mncf_pack_info *info;
     jv *out, *files;
-    if (text != NULL) {
-        data = (const uint8_t *)tstr(text, &size);
-    } else if (hex != NULL) {
-        size_t n;
-        const char *s = tstr(hex, &n);
-        data = from_hex(s != NULL ? s : "", s != NULL ? n : 0, &size);       /* the exact bytes of a pack */
-    } else {
-        size_t n = mncf_toml_count(z);
-        const char **names = (const char **)xalloc((n + 1) * sizeof *names);
-        const uint8_t **datas = (const uint8_t **)xalloc((n + 1) * sizeof *datas);
-        size_t *sizes = (size_t *)xalloc((n + 1) * sizeof *sizes);
-        for (i = 0; i < n; i++) {
-            size_t kn;
-            const char *key = mncf_toml_key(z, i, &kn);
-            char *path = xprintf("%s/%s", folder, tstrz(mncf_toml_at(z, i)));
-            names[i] = xstrndup(key, kn);
-            datas[i] = (const uint8_t *)read_file(path, &sizes[i]);
-            if (datas[i] == NULL) {
-                fprintf(stderr, "conformance: cannot read %s\n", path);
-                exit(2);
-            }
-        }
-        data = make_zip(names, datas, sizes, n, &size);
-    }
+    data = zip_bytes(mncf_toml_get(c, "zip"), folder, &size);
     pack = mncf_pack_read(data, size, trust, NULL, &err);
     mncf_trust_free(trust);
     if (pack == NULL) {
@@ -1632,6 +1641,246 @@ static jv *pack_results(const mncf_toml *c, const char *folder)
     }
     j_set(out, "files", files);
     mncf_pack_free(pack);
+    return out;
+}
+
+/* ---- Update cases ----------------------------------------------------------------------------------- */
+
+/* A copy of a string of the library, which lives until the end of the run; "" for NULL. */
+static jv *j_copy(const char *s)
+{
+    return j_str(s != NULL ? xprintf("%s", s) : "");
+}
+
+/* The bytes of one side of an update case, "installed" or "new": <side>_text, <side>_hex for exact
+ * bytes, or a file of the folder. */
+static const uint8_t *side_bytes(const mncf_toml *c, const char *side, const char *folder, size_t *size)
+{
+    const mncf_toml *v;
+    size_t n;
+    const char *s;
+    char *path;
+    const uint8_t *data;
+    if ((v = mncf_toml_get(c, xprintf("%s_text", side))) != NULL) {
+        s = tstr(v, &n);
+        *size = s != NULL ? n : 0;
+        return (const uint8_t *)(s != NULL ? s : "");
+    }
+    if ((v = mncf_toml_get(c, xprintf("%s_hex", side))) != NULL) {
+        s = tstr(v, &n);
+        return from_hex(s != NULL ? s : "", s != NULL ? n : 0, size);
+    }
+    path = xprintf("%s/%s", folder, tstrz(mncf_toml_get(c, side)));
+    data = (const uint8_t *)read_file(path, size);
+    if (data == NULL) {
+        fprintf(stderr, "conformance: cannot read %s\n", path);
+        exit(2);
+    }
+    return data;
+}
+
+/* What the reader says of the forms of section 17: addresses, versions, ids and dates. */
+static jv *syntax_results(const mncf_toml *c)
+{
+    static const char *const KINDS[] = {"url", "version", "compare", "id", "date"};
+    static char host[MNCF_MAX_URL + 1];
+    jv *out = j_new(J_DICT);
+    size_t k, i;
+    for (k = 0; k < 5; k++) {
+        const mncf_toml *items = mncf_toml_get(c, KINDS[k]);
+        jv *list = j_new(J_LIST);
+        for (i = 0; i < mncf_toml_count(items); i++) {
+            const mncf_toml *item = mncf_toml_at(items, i);
+            const char *text = tstrz(mncf_toml_get(item, "text"));
+            if (k == 0) {
+                mncf_update_url_host(text, host, sizeof host);
+                j_push(list, j_copy(host));
+            } else if (k == 1) {
+                j_push(list, j_bool(mncf_version_valid(text)));
+            } else if (k == 2) {
+                int r = 0;
+                const char *a = tstrz(mncf_toml_get(item, "a")), *b = tstrz(mncf_toml_get(item, "b"));
+                if (mncf_version_compare(a, b, &r) != MNCF_OK) {
+                    fprintf(stderr, "conformance: a compare case without two versions\n");
+                    exit(2);
+                }
+                j_push(list, j_number(mncf_number_int(r)));
+            } else if (k == 3) {
+                j_push(list, j_bool(mncf_file_id_valid(text)));
+            } else {
+                j_push(list, j_bool(mncf_date_valid(text)));
+            }
+        }
+        j_set(out, KINDS[k], list);
+    }
+    return out;
+}
+
+static jv *string_items(const char *const *items, size_t count)
+{
+    jv *l = j_new(J_LIST);
+    size_t i;
+    for (i = 0; i < count; i++) {
+        j_push(l, j_copy(items[i]));
+    }
+    return l;
+}
+
+/* What the player set, moved to the new version, in the shape of the Python runner's results. */
+static jv *carried_dict(const mncf_carried *cr)
+{
+    jv *d = j_new(J_DICT), *values = j_new(J_DICT), *ids = j_new(J_DICT), *reset = j_new(J_DICT);
+    size_t i;
+    j_set(d, "on", string_items(cr->choices.on, cr->choices.on_count));
+    j_set(d, "off", string_items(cr->choices.off, cr->choices.off_count));
+    for (i = 0; i < cr->choices.value_count; i++) {
+        j_set(values, xprintf("%s", cr->choices.values[i].key), j_number(cr->choices.values[i].value));
+    }
+    j_set(d, "values", values);
+    j_set(d, "preset", j_copy(cr->preset));
+    for (i = 0; i < cr->id_count; i++) {
+        j_set(ids, xprintf("%s", cr->ids[i].from), j_copy(cr->ids[i].to));
+    }
+    j_set(d, "ids", ids);
+    j_set(d, "dropped", string_items(cr->dropped, cr->dropped_count));
+    j_set(d, "gone", string_items(cr->gone, cr->gone_count));
+    for (i = 0; i < cr->reset_count; i++) {
+        j_set(reset, xprintf("%s", cr->reset[i].key), j_copy(cr->reset[i].why));
+    }
+    j_set(d, "reset", reset);
+    return d;
+}
+
+/* The entries to show, the cheats to mark, the pairs of a pack and what the player set, moved over, for
+ * a new side that loads. */
+static void update_details(jv *out, const mncf_toml *c, const mncf_update_info *info, const mncf_pack *old_pack,
+                           const char *old_version)
+{
+    const mncf_toml *settings = mncf_toml_get(c, "settings");
+    const char *language = tstrz(mncf_toml_get(c, "language"));
+    const mncf_release *changes;
+    size_t count, since, i;
+    mncf_error err;
+    jv *versions = j_get(out, "since"), *texts = j_get(out, "texts");
+    if (info->file != NULL) {
+        changes = mncf_file_info_of(info->file)->changes;
+        count = mncf_file_info_of(info->file)->change_count;
+    } else {
+        changes = mncf_pack_info_of(info->pack)->changes;
+        count = mncf_pack_info_of(info->pack)->change_count;
+    }
+    since = mncf_releases_since(changes, count, old_version);
+    for (i = 0; i < since; i++) {
+        j_push(versions, j_copy(changes[i].version));
+        j_push(texts, j_copy(mncf_release_text(info->file, &changes[i], language)));
+    }
+    if (info->pack != NULL) {
+        mncf_pairs *pairs = mncf_pack_pairs(old_pack, info->pack, &err);
+        jv *d = j_new(J_DICT);
+        if (pairs == NULL) {
+            fprintf(stderr, "conformance: the pairs failed: %s\n", err.message);
+            exit(2);
+        }
+        for (i = 0; i < pairs->count; i++) {
+            j_set(d, xprintf("%s", pairs->items[i].from), j_copy(pairs->items[i].to));
+        }
+        j_set(out, "pairs", d);
+        mncf_pairs_free(pairs);
+        return;
+    }
+    {
+        mncf_marks *marks = mncf_mark(info->file, old_version, &err);
+        if (marks == NULL) {
+            fprintf(stderr, "conformance: the marks failed: %s\n", err.message);
+            exit(2);
+        }
+        j_set(out, "new", string_items(marks->new_ids, marks->new_count));
+        j_set(out, "fixed", string_items(marks->fixed_ids, marks->fixed_count));
+        mncf_marks_free(marks);
+    }
+    if (settings != NULL) {
+        mncf_choices ch;
+        mncf_carried *cr;
+        const char *preset = tstrz(mncf_toml_get(settings, "preset"));
+        const char **kept;
+        size_t kept_count;
+        choices_of(settings, &ch);
+        kept = string_list(mncf_toml_get(settings, "kept"), &kept_count);
+        cr = mncf_carry(info->file, old_version, &ch, preset != NULL && preset[0] != 0 ? preset : NULL, kept,
+                        kept_count, &err);
+        if (cr == NULL) {
+            fprintf(stderr, "conformance: the carry failed: %s\n", err.message);
+            exit(2);
+        }
+        j_set(out, "settings", carried_dict(cr));
+        mncf_carried_free(cr);
+    }
+}
+
+/* Whether the new side of an update case is a new version of the installed side (spec, section 17), the
+ * change entries to show and the cheats to mark, and with [settings], what the player set, moved to the
+ * new version. */
+static jv *update_results(const mncf_toml *c, const char *folder)
+{
+    static const char *const SYNTAX[] = {"url", "version", "compare", "id", "date"};
+    const mncf_toml *installed_zip = mncf_toml_get(c, "installed_zip");
+    mncf_trust *trust;
+    mncf_error err;
+    mncf_file *old_file = NULL;
+    mncf_pack *old_pack = NULL;
+    mncf_update *u;
+    const mncf_update_info *info;
+    const char *old_version;
+    const uint8_t *data;
+    size_t size, i;
+    jv *out;
+    for (i = 0; i < 5; i++) {
+        if (mncf_toml_get(c, SYNTAX[i]) != NULL) {
+            return syntax_results(c);
+        }
+    }
+    trust = trust_list(c);
+    if (installed_zip != NULL) {
+        data = zip_bytes(installed_zip, folder, &size);
+        old_pack = mncf_pack_read(data, size, trust, NULL, &err);
+        if (old_pack == NULL) {
+            fprintf(stderr, "conformance: the installed pack does not read: %s\n", err.code);
+            exit(2);
+        }
+        old_version = mncf_pack_info_of(old_pack)->file_version;
+        data = zip_bytes(mncf_toml_get(c, "new_zip"), folder, &size);
+        u = mncf_pack_update_check(old_pack, data, size, trust, NULL, &err);
+    } else {
+        data = side_bytes(c, "installed", folder, &size);
+        old_file = mncf_load(data, size, trust, NULL, &err);
+        if (old_file == NULL) {
+            fprintf(stderr, "conformance: the installed file does not load: %s\n", err.code);
+            exit(2);
+        }
+        old_version = mncf_file_info_of(old_file)->file_version;
+        data = side_bytes(c, "new", folder, &size);
+        u = mncf_update_check(old_file, data, size, trust, NULL, &err);
+    }
+    mncf_trust_free(trust);
+    if (u == NULL) {
+        fprintf(stderr, "conformance: the update check failed: %s\n", err.message);
+        exit(2);
+    }
+    info = mncf_update_info_of(u);
+    out = j_new(J_DICT);
+    j_set(out, "reason", j_copy(info->reason));
+    j_set(out, "from", j_copy(old_version));
+    j_set(out, "to", j_copy(info->to_version));
+    j_set(out, "since", j_new(J_LIST));
+    j_set(out, "texts", j_new(J_LIST));
+    j_set(out, "new", j_new(J_LIST));
+    j_set(out, "fixed", j_new(J_LIST));
+    if (info->file != NULL || info->pack != NULL) {
+        update_details(out, c, info, old_pack, old_version);
+    }
+    mncf_update_free(u);
+    mncf_free(old_file);
+    mncf_pack_free(old_pack);
     return out;
 }
 
@@ -1885,11 +2134,68 @@ static void compare(problems *p, const jv *expect, const jv *got)
     }
 }
 
+/* The differences between an update case's [expect] table and what the reader said. Only the keys the
+ * case gives are compared, and reason; under settings, every key, with its default where it is missing. */
+static void compare_updates(problems *p, const jv *c, const jv *got)
+{
+    static const char *const KINDS[][2] = {
+        {"url", "host"}, {"version", "valid"}, {"compare", "result"}, {"id", "valid"}, {"date", "valid"}};
+    static const char *const SETTINGS[] = {"on", "off", "values", "preset", "ids", "dropped", "gone", "reset"};
+    const jv *want, *ws, *gs;
+    size_t i, k;
+    if (j_get(got, "url") != NULL) {
+        for (k = 0; k < 5; k++) {
+            const jv *items = j_get(c, KINDS[k][0]), *values = j_get(got, KINDS[k][0]);
+            for (i = 0; items != NULL && i < items->count && i < values->count; i++) {
+                const jv *item = items->items[i], *text = j_get(item, "text");
+                if (text == NULL) {
+                    text = j_get(item, "a");
+                }
+                if (!same(j_get(item, KINDS[k][1]), values->items[i], NULL)) {
+                    problem(p, "%s %.*s: differs", KINDS[k][0], text != NULL ? (int)text->n : 0,
+                            text != NULL ? text->s : "");
+                }
+            }
+        }
+        return;
+    }
+    want = j_get(c, "expect");
+    if (want == NULL) {
+        want = j_new(J_DICT);
+    }
+    for (i = 0; i < want->count; i++) {
+        char *key = xstrndup(want->keys[i], want->key_lens[i]);
+        if (strcmp(key, "settings") != 0 && !same(want->items[i], j_get(got, key), NULL)) {
+            problem(p, "%s: differs", key);
+        }
+    }
+    if (j_get(want, "reason") == NULL && !same(j_str(""), j_get(got, "reason"), NULL)) {
+        problem(p, "reason: expected '', got %s", j_get(got, "reason")->s);
+    }
+    ws = j_get(want, "settings");
+    if (ws == NULL) {
+        return;
+    }
+    gs = j_get(got, "settings");
+    if (gs == NULL) {
+        gs = j_new(J_DICT);
+    }
+    for (k = 0; k < sizeof SETTINGS / sizeof SETTINGS[0]; k++) {
+        const jv *w = j_get(ws, SETTINGS[k]);
+        if (w == NULL) {
+            w = k == 3 ? j_str("") : (k == 2 || k == 4 || k == 7) ? j_new(J_DICT) : j_new(J_LIST);
+        }
+        if (!same(w, j_get(gs, SETTINGS[k]), NULL)) {
+            problem(p, "settings.%s: differs", SETTINGS[k]);
+        }
+    }
+}
+
 /* ---- The suite -------------------------------------------------------------------------------------- */
 
 int main(int argc, char **argv)
 {
-    static const char *const KINDS[] = {"cases", "packs", "convert", "passes"};
+    static const char *const KINDS[] = {"cases", "packs", "convert", "passes", "updates"};
     const char *suite = NULL;
     int dump = 0, i;
     size_t total = 0, failed = 0, skipped = 0, k;
@@ -1944,6 +2250,8 @@ int main(int argc, char **argv)
                 got = file_results(ct, folder);
             } else if (strcmp(KINDS[k], "packs") == 0) {
                 got = pack_results(ct, folder);
+            } else if (strcmp(KINDS[k], "updates") == 0) {
+                got = update_results(ct, folder);
             } else {
                 got = pass_results(ct, folder);
             }
@@ -1952,6 +2260,8 @@ int main(int argc, char **argv)
             p.count = 0;
             if (strcmp(KINDS[k], "passes") == 0) {
                 compare_passes(&p, cj, got);
+            } else if (strcmp(KINDS[k], "updates") == 0) {
+                compare_updates(&p, cj, got);
             } else {
                 const jv *expect = j_get(cj, "expect");
                 compare(&p, expect != NULL ? expect : j_new(J_DICT), got);

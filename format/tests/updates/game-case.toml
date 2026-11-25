@@ -1,0 +1,25 @@
+about = "The game id is compared without regard to case."
+installed = "files/v3.mncf"
+new_text = '''
+format = "mncf/1"
+name = "Update example"
+id = "example.org/someone/update-example"
+file_version = "4"
+
+[game]
+platform = "switch"
+id = "0100000000abc000"
+
+[[cheat]]
+id = "money"
+name = "Money"
+
+  [[cheat.write]]
+  at = { region = "heap", offset = 0x10 }
+  type = "u32"
+  value = 5
+'''
+
+[expect]
+reason = ""
+since = []

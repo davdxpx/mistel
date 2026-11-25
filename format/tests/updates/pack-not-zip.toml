@@ -1,0 +1,13 @@
+about = "An answer that is not a pack is refused with the pack's error."
+
+[installed_zip]
+"pack.toml" = "files/pack-v1.toml"
+"a.mncf" = "files/pa.mncf"
+"old/b.mncf" = "files/pb.mncf"
+"c.mncf" = "files/pc.mncf"
+
+[new_zip]
+text = "Not found"
+
+[expect]
+reason = "update:error:zip"

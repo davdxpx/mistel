@@ -1,0 +1,19 @@
+format = "mncf-pack/1"
+name = "Update pack"
+id = "example.org/someone/update-pack"
+file_version = "1"
+
+[update]
+url = "https://example.org/someone/update-pack.mncp"
+
+[[file]]
+path = "a.mncf"
+sha256 = "58a57881633c710f6e71baf45e2cea2e121ab030be50fdc20e8f36c37bb3de16"
+
+[[file]]
+path = "old/b.mncf"
+sha256 = "c6c2f8dfb71e4a2e9fd1252d4825e9bcd6d77f90b6fb711278dc7ee3d5ecf8fa"
+
+[[file]]
+path = "c.mncf"
+sha256 = "fb440e9ede37d1fbd72ffd725c2b4bdbb8ed6edbf72293c20b6077f7581180d3"
