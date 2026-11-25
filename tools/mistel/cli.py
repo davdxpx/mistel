@@ -10,7 +10,7 @@ from mncf import atmosphere, convert, disasm, patches
 from mncf.module import ModuleError, module_from_bytes, read_runs
 from mncf.pattern import make_pattern
 
-from . import __version__, check as checking, keys
+from . import __version__, check as checking, keys, port as porting
 
 _HEX16 = re.compile(r'^[0-9A-Fa-f]{16}$')
 
@@ -245,6 +245,27 @@ def cmd_pack(args):
     return 0
 
 
+def cmd_port(args):
+    path = pathlib.Path(args.file)
+    p = porting.port(path.read_bytes(), load_module(args.old), load_module(args.new), args.from_build, args.build,
+                     args.version)
+    out = pathlib.Path(args.output) if args.output else path.with_name(path.stem + '.ported.mncf')
+    out.write_text(p.text, encoding='utf-8', newline='\n')
+    print(f'wrote {out}: build {p.new_key} from build {p.old_key}')
+    print(f'{len(p.cheats)} cheats: {p.count("ported")} ported, {p.count("fits")} fit as they are, '
+          f'{len(p.cheats) - p.count("ported") - p.count("fits")} not; {p.fit} of {p.total} fit the new build')
+    for c in p.cheats:
+        if c.outcome not in ('ported', 'fits') or args.verbose:
+            print(f'  {c.id}: {porting.WORDS.get(c.outcome, c.outcome)}')
+        if args.verbose:
+            for pl in c.places:
+                where = '' if pl.old is None else f' 0x{pl.old:X}' + ('' if pl.new is None else f' -> 0x{pl.new:X}')
+                print(f'      {pl.op}: {pl.outcome}{where}')
+        if c.raw and c.outcome != 'raw':
+            print(f'  {c.id}: its raw code is for build {p.old_key} only (raw code is not ported yet)')
+    return 0
+
+
 def parser():
     p = argparse.ArgumentParser(prog='mistel', description='Tools for .mncf cheat files.')
     p.add_argument('--version', action='version', version=f'mistel {__version__}')
@@ -314,6 +335,18 @@ def parser():
     a.add_argument('--file-version')
     a.add_argument('--sign', help='a secret key file to sign the manifest with')
     a.set_defaults(run=cmd_pack)
+    o = sub.add_parser('port', help="the places of a file's cheats in a new build of the game, from the old build's "
+                                    "code")
+    o.add_argument('file')
+    o.add_argument('--old', required=True, help='the main module of a build the file knows (an NSO from your own dump)')
+    o.add_argument('--new', required=True, help='the main module of the new build (an NSO from your own dump)')
+    o.add_argument('--from', dest='from_build', help="the file's build key of the old main, where its build ID does not "
+                                                     "say it")
+    o.add_argument('--build', help='the build key for the new build (default: --version, else its build ID)')
+    o.add_argument('--version', help='the version players see for the new build, such as 1.0.4')
+    o.add_argument('-o', '--output', help='where to write it (default: <file>.ported.mncf beside it)')
+    o.add_argument('-v', '--verbose', action='store_true', help='say for each place what became of it')
+    o.set_defaults(run=cmd_port)
     return p
 
 
