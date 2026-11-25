@@ -231,10 +231,14 @@ struct mncf_trust {
     size_t revoked_count, revoked_cap;
 };
 
-/* Checks the signature lines of a file's bytes into sig, with strings in the arena. 0 on no memory. */
-int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, mn_arena *ar,
-                       mncf_signature *sig);
+/* Checks the signature lines of a file's bytes into sig, with strings in the arena. signers are the public
+ * keys of the file's `signers` key, which check a line whose key is not trusted (section 12). 0 on no
+ * memory. */
+int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, const uint8_t (*signers)[32],
+                       size_t signer_count, mn_arena *ar, mncf_signature *sig);
 size_t mn_signature_split(const uint8_t *data, size_t n);   /* the size of the signed part */
+/* Whether the text is the base64 of exactly 32 bytes, written as base64 writes them; out gets them. */
+int mn_public_key_of(const char *s, size_t n, uint8_t out[32]);
 
 /* ---- Platforms -------------------------------------------------------------------------------------- */
 

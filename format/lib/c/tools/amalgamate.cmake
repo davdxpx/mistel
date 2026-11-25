@@ -12,7 +12,7 @@ endif()
 set(parts
     src/internal.h src/encode.h src/model.h src/evaluate.h src/zip.h
     src/util.c src/toml.c src/crypto.c src/signature.c src/platform.c src/encode.c
-    src/schema.c src/load.c src/evaluate.c src/engine.c src/zip.c src/pack.c)
+    src/schema.c src/load.c src/evaluate.c src/engine.c src/zip.c src/pack.c src/update.c)
 
 file(READ ${SOURCE_DIR}/include/mncf.h header)
 string(REGEX MATCH "#define MNCF_VERSION \"[^\"]*\"" version_line "${header}")

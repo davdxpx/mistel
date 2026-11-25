@@ -259,7 +259,6 @@ static int player_value(const mn_eval *ev, const mn_cheat *c, size_t ref, mn_num
     size_t vn = strlen(s->id);
     const mn_value *found = NULL;
     size_t i;
-    int ok;
     for (i = 0; i < ev->value_count; i++) {
         const mn_value *v = &ev->values[i];
         if (v->key_len == c->id_len + 1 + vn && memcmp(v->key, c->pub.id, c->id_len) == 0 &&
@@ -271,16 +270,7 @@ static int player_value(const mn_eval *ev, const mn_cheat *c, size_t ref, mn_num
         *out = s->default_value;
         return 1;
     }
-    if (s->type == MNCF_TYPE_BOOL) {
-        ok = found->value.kind == MNCF_NUMBER_BOOL;
-    } else if (mn_type_is_float(s->type)) {
-        ok = (found->value.kind == MNCF_NUMBER_INT ||
-              (found->value.kind == MNCF_NUMBER_FLOAT && found->value.real == found->value.real)) &&
-             mn_fits(s->type, &found->value);
-    } else {
-        ok = found->value.kind == MNCF_NUMBER_INT && mn_fits(s->type, &found->value);
-    }
-    if (!ok || !mn_value_in_spec(s, &found->value)) {
+    if (mn_value_fit(s, &found->value) != MN_FIT_OK) {
         return 0;
     }
     *out = found->value;

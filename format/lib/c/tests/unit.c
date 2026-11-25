@@ -1,6 +1,6 @@
 /* unit.c: unit tests of the C library: hashes, Ed25519, base64, CRC-32, inflate and ZIP, the TOML
- * parser, numbers, machine code, trust lists, signatures, packs, the API's errors, and every allocation
- * failing in turn. The conformance runner tests the rest against the suite. MIT License.
+ * parser, numbers, machine code, trust lists, signatures, packs, the API's errors, updates, and every
+ * allocation failing in turn. The conformance runner tests the rest against the suite. MIT License.
  *
  *     mncf_unit [<format/tests folder>]
  */
@@ -827,7 +827,7 @@ static void test_api(void)
     const char *reason;
     const char *held[] = {"ZL"};
     int is_on = -1;
-    CHECK(strcmp(mncf_version(), MNCF_VERSION) == 0 && MNCF_VERSION_NUMBER == 10000);
+    CHECK(strcmp(mncf_version(), MNCF_VERSION) == 0 && MNCF_VERSION_NUMBER == 10100);
     CHECK(mncf_load(NULL, 1, NULL, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
     CHECK(mncf_load("", 0, NULL, NULL, &err) == NULL && strcmp(err.code, "format") == 0);
     CHECK(mncf_load("format = \"mncf/2\"", 17, NULL, NULL, NULL) == NULL);
@@ -980,6 +980,319 @@ static void test_runtime_gaps(void)
     mncf_free(f);
 }
 
+/* ---- Updates (section 17) --------------------------------------------------------------------------- */
+
+static const char UPDATE_OLD[] =
+    "format = \"mncf/1\"\nname = \"U\"\nid = \"example.org/u\"\nfile_version = \"1\"\n\n"
+    "[game]\nplatform = \"switch\"\nid = \"0100000000ABC000\"\n\n"
+    "[[cheat]]\nid = \"money\"\nname = \"Money\"\n"
+    "  [cheat.values.count]\n  type = \"u32\"\n  max = 1000\n  default = 100\n"
+    "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x10 }\n  type = \"u32\"\n  value = \"$count\"\n\n"
+    "[[cheat]]\nid = \"speed\"\nname = \"Speed\"\n"
+    "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x20 }\n  type = \"u8\"\n  value = 1\n\n"
+    "[[preset]]\nid = \"rich\"\nname = \"Rich\"\ncheats = [\"money\"]\n";
+
+static const char UPDATE_NEW[] =
+    "format = \"mncf/1\"\nname = \"U\"\nid = \"example.org/u\"\nfile_version = \"2.1\"\n"
+    "signers = [\"11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\"]\n\n"
+    "[update]\nurl = \"https://example.org:8443/u.mncf?v=2\"\n\n"
+    "[[changes]]\nversion = \"2\"\ntext = \"Coins.\"\nrenamed = { money = \"coins\" }\nremoved = [\"speed\"]\n\n"
+    "[[changes]]\nversion = \"2.1\"\ndate = \"2026-12-02\"\nadded = [\"jump\"]\nfixed = [\"coins\"]\n\n"
+    "[game]\nplatform = \"switch\"\nid = \"0100000000abc000\"\n\n"
+    "[[cheat]]\nid = \"coins\"\nname = \"Coins\"\n"
+    "  [cheat.values.count]\n  type = \"u32\"\n  max = 500\n  default = 100\n"
+    "  [cheat.values.rate]\n  type = \"f32\"\n  default = 1.0\n"
+    "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x10 }\n  type = \"u32\"\n  value = \"$count\"\n\n"
+    "[[cheat]]\nid = \"jump\"\nname = \"Jump\"\n"
+    "  [[cheat.write]]\n  at = { region = \"heap\", offset = 0x30 }\n  type = \"u8\"\n  value = 1\n\n"
+    "[[preset]]\nid = \"rich\"\nname = \"Rich\"\ncheats = [\"coins\"]\n\n"
+    "[i18n.de.changes.\"2\"]\ntext = \"Muenzen.\"\n";
+
+/* A pack of two files: a manifest that starts with head, then the two files with their hashes. Free it
+ * with free(). */
+static uint8_t *two_file_pack(const char *head, const char *name_a, const char *text_a, const char *name_b,
+                              const char *text_b, size_t *len)
+{
+    static const char H[] = "0123456789abcdef";
+    char manifest[1024], hex[2][65];
+    uint8_t hash[32];
+    test_entry e[3];
+    size_t i, k;
+    for (k = 0; k < 2; k++) {
+        const char *text = k == 0 ? text_a : text_b;
+        mncf_sha256(text, strlen(text), hash);
+        for (i = 0; i < 32; i++) {
+            hex[k][2 * i] = H[hash[i] >> 4];
+            hex[k][2 * i + 1] = H[hash[i] & 15];
+        }
+        hex[k][64] = 0;
+    }
+    snprintf(manifest, sizeof manifest, "%s\n[[file]]\npath = \"%s\"\nsha256 = \"%s\"\n\n[[file]]\npath = \"%s\"\nsha256 = \"%s\"\n",
+             head, name_a, hex[0], name_b, hex[1]);
+    memset(e, 0, sizeof e);
+    e[0].name = "pack.toml";
+    e[0].data = (const uint8_t *)manifest;
+    e[0].size = strlen(manifest);
+    e[1].name = name_a;
+    e[1].data = (const uint8_t *)text_a;
+    e[1].size = strlen(text_a);
+    e[2].name = name_b;
+    e[2].data = (const uint8_t *)text_b;
+    e[2].size = strlen(text_b);
+    return make_zip(e, 3, 0, len);
+}
+
+static const char PACK_OLD_HEAD[] = "format = \"mncf-pack/1\"\nname = \"P\"\nid = \"example.org/p\"\nfile_version = \"1\"\n";
+static const char PACK_NEW_HEAD[] =
+    "format = \"mncf-pack/1\"\nname = \"P\"\nid = \"example.org/p\"\nfile_version = \"2\"\n"
+    "[[changes]]\nversion = \"2\"\nrenamed = { \"b.mncf\" = \"c.mncf\" }\nadded = [\"dir/x.mncf\"]\n";
+
+static void test_update_forms(void)
+{
+    char host[8], url[MNCF_MAX_URL + 2];
+    int r = 7;
+    CHECK(mncf_version_valid("1.0.0.0.0.0.0.0") && !mncf_version_valid(NULL) && !mncf_version_valid("1.") &&
+          !mncf_version_valid(".1") && !mncf_version_valid("+1"));
+    CHECK(mncf_version_compare("1.0.0.0.0.0.0.0", "1", &r) == MNCF_OK && r == 0);
+    CHECK(mncf_version_compare("999999999", "99999999.9", &r) == MNCF_OK && r == 1);
+    CHECK(mncf_version_compare("0.1", "0.01", &r) == MNCF_OK && r == 0);
+    r = 7;
+    CHECK(mncf_version_compare("1", "v1", &r) == MNCF_ERR_ARGUMENT && r == 7);
+    CHECK(mncf_version_compare(NULL, "1", NULL) == MNCF_ERR_ARGUMENT);
+    memset(url, 'a', MNCF_MAX_FILE_ID);
+    url[MNCF_MAX_FILE_ID] = 0;
+    CHECK(mncf_file_id_valid(url));
+    url[MNCF_MAX_FILE_ID] = 'a';
+    url[MNCF_MAX_FILE_ID + 1] = 0;
+    CHECK(!mncf_file_id_valid(url) && !mncf_file_id_valid(NULL) && !mncf_file_id_valid("a/./b") &&
+          !mncf_file_id_valid("a/b/") && mncf_file_id_valid("..a/b.."));
+    CHECK(mncf_date_valid("0000-02-29") && mncf_date_valid("2026-12-31") && !mncf_date_valid("2026-12-32") &&
+          !mncf_date_valid("2026-12-3a") && !mncf_date_valid(NULL));
+    /* the host, cut to the room given */
+    CHECK(mncf_update_url_host("https://example.org/x", host, sizeof host) == 11 && strcmp(host, "example") == 0);
+    CHECK(mncf_update_url_host("https://example.org", NULL, 0) == 11);
+    CHECK(mncf_update_url_host("https://a.example:65535/?q?r=%41", host, sizeof host) == 9 &&
+          strcmp(host, "a.examp") == 0);
+    CHECK(mncf_update_url_host("https://a.example:/x", host, sizeof host) == 0 && host[0] == 0);
+    CHECK(mncf_update_url_host("https://a.example:123456/x", host, sizeof host) == 0);
+    CHECK(mncf_update_url_host("https://example.org/x%4", host, sizeof host) == 0);
+    CHECK(mncf_update_url_host("https://example.org/x%", host, sizeof host) == 0);
+    CHECK(mncf_update_url_host("https://1.2.example/x", host, sizeof host) == 11);
+    CHECK(mncf_update_url_host("https://example.123/x", host, sizeof host) == 0);
+    CHECK(mncf_update_url_host("https://a-.example/x", host, sizeof host) == 0);
+    CHECK(mncf_update_url_host("https://example", host, sizeof host) == 0 && mncf_update_url_host(NULL, host, 1) == 0);
+    memset(url, 'a', sizeof url - 1);
+    url[sizeof url - 1] = 0;
+    memcpy(url, "https://example.org/", 20);
+    url[MNCF_MAX_URL] = 0;
+    CHECK(mncf_update_url_host(url, NULL, 0) == 11);
+    url[MNCF_MAX_URL] = 'a';
+    CHECK(mncf_update_url_host(url, NULL, 0) == 0);
+}
+
+static void test_update_keys(void)
+{
+    mncf_error err;
+    mncf_file *f = mncf_load(UPDATE_NEW, strlen(UPDATE_NEW), NULL, NULL, &err);
+    const mncf_file_info *info;
+    const mncf_release *r;
+    uint8_t one[32];
+    CHECK(f != NULL);
+    if (f == NULL) {
+        printf("  %s: %s\n", err.code, err.message);
+        return;
+    }
+    unhex(RFC8032[0][0], one, 32);
+    info = mncf_file_info_of(f);
+    CHECK(info->warning_count == 0 && strcmp(info->id, "example.org/u") == 0);
+    CHECK(strcmp(info->update_url, "https://example.org:8443/u.mncf?v=2") == 0 &&
+          strcmp(info->update_host, "example.org") == 0);
+    CHECK(info->signer_count == 1 && memcmp(info->signers[0], one, 32) == 0 &&
+          info->signature.result == MNCF_SIGNATURE_UNSIGNED);
+    CHECK(info->change_count == 2);
+    if (info->change_count != 2) {
+        mncf_free(f);
+        return;
+    }
+    r = &info->changes[0];              /* newest first */
+    CHECK(strcmp(r->version, "2.1") == 0 && strcmp(r->date, "2026-12-02") == 0 && r->text == NULL &&
+          r->added_count == 1 && strcmp(r->added[0], "jump") == 0 && r->fixed_count == 1 &&
+          strcmp(r->fixed[0], "coins") == 0 && r->removed_count == 0 && r->renamed_count == 0);
+    r = &info->changes[1];
+    CHECK(strcmp(r->version, "2") == 0 && r->date == NULL && strcmp(r->text, "Coins.") == 0 &&
+          r->removed_count == 1 && strcmp(r->removed[0], "speed") == 0 && r->renamed_count == 1 &&
+          strcmp(r->renamed[0].from, "money") == 0 && strcmp(r->renamed[0].to, "coins") == 0);
+    /* the entries to show and their texts */
+    CHECK(mncf_releases_since(info->changes, 2, "1") == 2 && mncf_releases_since(info->changes, 2, "2") == 1 &&
+          mncf_releases_since(info->changes, 2, "2.1.0") == 0 && mncf_releases_since(info->changes, 2, NULL) == 2 &&
+          mncf_releases_since(info->changes, 2, "v1") == 2 && mncf_releases_since(NULL, 2, NULL) == 0);
+    CHECK(strcmp(mncf_release_text(f, r, "de"), "Muenzen.") == 0 && strcmp(mncf_release_text(f, r, "fr"), "Coins.") == 0 &&
+          strcmp(mncf_release_text(f, r, ""), "Coins.") == 0 && strcmp(mncf_release_text(NULL, r, "de"), "Coins.") == 0 &&
+          mncf_release_text(f, &info->changes[0], "de") == NULL && mncf_release_text(f, NULL, "de") == NULL);
+    mncf_free(f);
+}
+
+static void test_update_check(void)
+{
+    mncf_error err;
+    mncf_file *old = mncf_load(UPDATE_OLD, strlen(UPDATE_OLD), NULL, NULL, &err), *fresh;
+    mncf_update *u;
+    const mncf_update_info *info;
+    CHECK(old != NULL);
+    if (old == NULL) {
+        return;
+    }
+    CHECK(mncf_update_check(NULL, UPDATE_NEW, 3, NULL, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_update_check(old, NULL, 3, NULL, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    u = mncf_update_check(old, "nope", 4, NULL, NULL, &err);
+    info = mncf_update_info_of(u);
+    CHECK(u != NULL && strcmp(info->reason, "update:error:toml") == 0 && info->file == NULL &&
+          info->to_version == NULL && strcmp(info->from_version, "1") == 0 && mncf_update_take_file(u) == NULL);
+    mncf_update_free(u);
+    u = mncf_update_check(old, UPDATE_OLD, strlen(UPDATE_OLD), NULL, NULL, &err);
+    CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "update:version") == 0);
+    mncf_update_free(u);
+    u = mncf_update_check(old, UPDATE_NEW, strlen(UPDATE_NEW), NULL, NULL, &err);
+    info = mncf_update_info_of(u);
+    CHECK(u != NULL && strcmp(info->reason, "") == 0 && strcmp(info->to_version, "2.1") == 0 && info->file != NULL &&
+          info->pack == NULL);
+    fresh = mncf_update_take_file(u);
+    CHECK(fresh != NULL && info->file == NULL && mncf_update_take_file(u) == NULL && mncf_update_take_pack(u) == NULL);
+    mncf_update_free(u);
+    CHECK(mncf_update_info_of(NULL) == NULL && mncf_update_take_file(NULL) == NULL);
+    mncf_update_free(NULL);
+    /* the old version is no new version of the new one */
+    u = mncf_update_check(fresh, UPDATE_OLD, strlen(UPDATE_OLD), NULL, NULL, &err);
+    CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "update:version") == 0);
+    mncf_update_free(u);
+    mncf_free(fresh);
+    mncf_free(old);
+}
+
+static void test_update_settings(void)
+{
+    mncf_error err;
+    mncf_file *f = mncf_load(UPDATE_NEW, strlen(UPDATE_NEW), NULL, NULL, &err);
+    const char *names[] = {"money", "speed", "nothing", NULL};
+    const char *out[4];
+    const char *on[] = {"money", "money"}, *off[] = {"speed"}, *kept[] = {"speed", "ghost"};
+    mncf_choice_value values[5];
+    mncf_choices ch;
+    mncf_marks *m;
+    mncf_carried *c;
+    if (f == NULL) {
+        CHECK(f != NULL);
+        return;
+    }
+    CHECK(mncf_ids(f, "1", names, 4, out, &err) == MNCF_OK && out[0] == mncf_file_cheat(f, "coins")->id &&
+          out[1] == NULL && out[2] == NULL && out[3] == NULL);
+    CHECK(mncf_ids(f, "2", names, 1, out, &err) == MNCF_OK && out[0] == NULL);
+    CHECK(mncf_ids(f, "1", NULL, 1, out, &err) == MNCF_ERR_ARGUMENT && err.status == MNCF_ERR_ARGUMENT);
+    CHECK(mncf_ids(f, "1", names, 0, NULL, &err) == MNCF_OK);
+    m = mncf_mark(f, "1", &err);
+    CHECK(m != NULL && m->new_count == 1 && strcmp(m->new_ids[0], "jump") == 0 && m->fixed_count == 1 &&
+          strcmp(m->fixed_ids[0], "coins") == 0);
+    mncf_marks_free(m);
+    m = mncf_mark(f, "2.1", &err);
+    CHECK(m != NULL && m->new_count == 0 && m->fixed_count == 0);
+    mncf_marks_free(m);
+    CHECK(mncf_mark(NULL, "1", &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    /* a key given twice: the last value counts; a whole number fits a float value; a key without a value
+     * id is gone */
+    values[0].key = "money.count";
+    values[0].value = mncf_number_int(300);
+    values[1].key = "money.count";
+    values[1].value = mncf_number_int(900);
+    values[2].key = "money.rate";
+    values[2].value = mncf_number_int(2);
+    values[3].key = "speed.x";
+    values[3].value = mncf_number_int(1);
+    values[4].key = "money";
+    values[4].value = mncf_number_int(5);
+    memset(&ch, 0, sizeof ch);
+    ch.on = on;
+    ch.on_count = 2;
+    ch.off = off;
+    ch.off_count = 1;
+    ch.values = values;
+    ch.value_count = 5;
+    c = mncf_carry(f, "1", &ch, "rich", kept, 2, &err);
+    CHECK(c != NULL);
+    if (c != NULL) {
+        CHECK(c->choices.on_count == 1 && strcmp(c->choices.on[0], "coins") == 0 && c->choices.off_count == 0);
+        CHECK(c->id_count == 3 && strcmp(c->ids[0].from, "money") == 0 && strcmp(c->ids[0].to, "coins") == 0 &&
+              strcmp(c->ids[1].from, "speed") == 0 && c->ids[1].to == NULL && strcmp(c->ids[2].from, "ghost") == 0 &&
+              c->ids[2].to == NULL);
+        CHECK(c->dropped_count == 2 && strcmp(c->dropped[0], "speed") == 0 && strcmp(c->dropped[1], "ghost") == 0);
+        CHECK(c->reset_count == 1 && strcmp(c->reset[0].key, "coins.count") == 0 && strcmp(c->reset[0].why, "range") == 0);
+        CHECK(c->choices.value_count == 1 && strcmp(c->choices.values[0].key, "coins.rate") == 0 &&
+              c->choices.values[0].value.kind == MNCF_NUMBER_INT && c->choices.values[0].value.magnitude == 2);
+        CHECK(c->gone_count == 1 && strcmp(c->gone[0], "money") == 0 && strcmp(c->preset, "rich") == 0);
+    }
+    mncf_carried_free(c);
+    c = mncf_carry(f, NULL, NULL, "slow", NULL, 0, &err);
+    CHECK(c != NULL && c->id_count == 0 && c->choices.on_count == 0 && c->preset == NULL);
+    mncf_carried_free(c);
+    ch.on = NULL;
+    CHECK(mncf_carry(f, NULL, &ch, NULL, NULL, 0, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    mncf_carried_free(NULL);
+    mncf_marks_free(NULL);
+    mncf_free(f);
+}
+
+static void test_update_packs(void)
+{
+    mncf_error err;
+    size_t old_len, new_len;
+    uint8_t *old_zip = two_file_pack(PACK_OLD_HEAD, "a.mncf", UPDATE_OLD, "b.mncf", FILE_TEXT, &old_len);
+    uint8_t *new_zip = two_file_pack(PACK_NEW_HEAD, "a2.mncf", UPDATE_NEW, "c.mncf", FILE_TEXT, &new_len);
+    mncf_pack *old = mncf_pack_read(old_zip, old_len, NULL, NULL, &err), *fresh;
+    mncf_update *u;
+    mncf_pairs *pairs;
+    const mncf_pack_info *info;
+    CHECK(old != NULL);
+    if (old == NULL) {
+        free(old_zip);
+        free(new_zip);
+        return;
+    }
+    u = mncf_pack_update_check(old, new_zip, new_len, NULL, NULL, &err);
+    CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "") == 0 && mncf_update_info_of(u)->file == NULL &&
+          strcmp(mncf_update_info_of(u)->to_version, "2") == 0);
+    fresh = mncf_update_take_pack(u);
+    mncf_update_free(u);
+    CHECK(fresh != NULL);
+    if (fresh != NULL) {
+        info = mncf_pack_info_of(fresh);
+        CHECK(strcmp(info->id, "example.org/p") == 0 && info->change_count == 1 && info->update_url == NULL &&
+              info->changes[0].renamed_count == 1 && strcmp(info->changes[0].renamed[0].to, "c.mncf") == 0 &&
+              info->changes[0].added_count == 1 && strcmp(info->changes[0].added[0], "dir/x.mncf") == 0);
+        /* by id and game, whatever the case of the game ID, and by path where neither file has an id */
+        pairs = mncf_pack_pairs(old, fresh, &err);
+        CHECK(pairs != NULL && pairs->count == 2 && strcmp(pairs->items[0].from, "a.mncf") == 0 &&
+              strcmp(pairs->items[0].to, "a2.mncf") == 0 && strcmp(pairs->items[1].from, "b.mncf") == 0 &&
+              strcmp(pairs->items[1].to, "c.mncf") == 0);
+        mncf_pairs_free(pairs);
+        /* the other way, the entries of the old pack have nothing to follow */
+        pairs = mncf_pack_pairs(fresh, old, &err);
+        CHECK(pairs != NULL && pairs->count == 2 && strcmp(pairs->items[0].to, "a.mncf") == 0 &&
+              pairs->items[1].to == NULL);
+        mncf_pairs_free(pairs);
+        mncf_pack_free(fresh);
+    }
+    CHECK(mncf_pack_pairs(old, NULL, &err) == NULL && err.status == MNCF_ERR_ARGUMENT);
+    u = mncf_pack_update_check(old, old_zip, old_len, NULL, NULL, &err);
+    CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "update:version") == 0);
+    mncf_update_free(u);
+    u = mncf_pack_update_check(old, "PK", 2, NULL, NULL, &err);
+    CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "update:error:zip") == 0 &&
+          mncf_update_info_of(u)->pack == NULL);
+    mncf_update_free(u);
+    mncf_pack_free(old);
+    free(old_zip);
+    free(new_zip);
+}
+
 /* ---- Every allocation failing in turn --------------------------------------------------------------- */
 
 /* An allocator that fails at one allocation and checks that every free gives the size it was given. */
@@ -1038,7 +1351,73 @@ static void *counting_alloc(void *ctx, void *ptr, size_t old_size, size_t new_si
     return h + 1;
 }
 
-/* Runs a file, an evaluation, an engine and a pack with the allocator; 1 when every step worked. */
+/* Checks a new version of a file and of a pack with the allocator, marks, moves what the player set and
+ * pairs the files; 1 when every step worked. */
+static int run_updates(const mncf_allocator *a)
+{
+    mncf_error err;
+    mncf_file *old = mncf_load(UPDATE_OLD, strlen(UPDATE_OLD), NULL, a, &err), *fresh;
+    mncf_pack *old_pack, *new_pack;
+    mncf_update *u;
+    mncf_marks *m;
+    mncf_carried *c;
+    mncf_pairs *pairs;
+    const char *names[] = {"money", "speed"};
+    const char *out[2];
+    mncf_choice_value values[1];
+    mncf_choices ch;
+    uint8_t *old_zip, *new_zip;
+    size_t old_len, new_len;
+    int ok = 1;
+    if (old == NULL) {
+        return 0;
+    }
+    u = mncf_update_check(old, UPDATE_NEW, strlen(UPDATE_NEW), NULL, a, &err);
+    fresh = mncf_update_take_file(u);
+    ok &= fresh != NULL;
+    mncf_update_free(u);
+    if (fresh != NULL) {
+        m = mncf_mark(fresh, "1", &err);
+        ok &= m != NULL;
+        mncf_marks_free(m);
+        ok &= mncf_ids(fresh, "1", names, 2, out, &err) == MNCF_OK;
+        values[0].key = "money.count";
+        values[0].value = mncf_number_int(900);
+        memset(&ch, 0, sizeof ch);
+        ch.on = names;
+        ch.on_count = 2;
+        ch.values = values;
+        ch.value_count = 1;
+        c = mncf_carry(fresh, "1", &ch, "rich", names, 2, &err);
+        ok &= c != NULL;
+        mncf_carried_free(c);
+        mncf_free(fresh);
+    }
+    mncf_free(old);
+    old_zip = two_file_pack(PACK_OLD_HEAD, "a.mncf", UPDATE_OLD, "b.mncf", FILE_TEXT, &old_len);
+    new_zip = two_file_pack(PACK_NEW_HEAD, "a2.mncf", UPDATE_NEW, "c.mncf", FILE_TEXT, &new_len);
+    old_pack = mncf_pack_read(old_zip, old_len, NULL, a, &err);
+    ok &= old_pack != NULL;
+    if (old_pack != NULL) {
+        u = mncf_pack_update_check(old_pack, new_zip, new_len, NULL, a, &err);
+        new_pack = mncf_update_take_pack(u);
+        ok &= new_pack != NULL;
+        mncf_update_free(u);
+        if (new_pack != NULL) {
+            pairs = mncf_pack_pairs(old_pack, new_pack, &err);
+            ok &= pairs != NULL;
+            mncf_pairs_free(pairs);
+            mncf_pack_free(new_pack);
+        }
+        mncf_pack_free(old_pack);
+    }
+    free(old_zip);
+    free(new_zip);
+    return ok;
+}
+
+/* Runs a file, an evaluation, an engine, a pack and updates with the allocator; 1 when every step
+ * worked. */
 static int run_all(const mncf_allocator *a)
 {
     mncf_error err;
@@ -1102,6 +1481,8 @@ static int run_all(const mncf_allocator *a)
     p = mncf_pack_read(raw, n, t, a, &err);
     ok &= p != NULL;
     mncf_pack_free(p);
+    STEP("updates");
+    ok &= run_updates(a);
     mncf_free(f);
     mncf_trust_free(t);
 #undef STEP
@@ -1142,6 +1523,78 @@ static void test_allocation_failures(void)
 
 /* ---- The suite's own files through the API ---------------------------------------------------------- */
 
+/* A file of the suite, read with malloc; NULL where it cannot be read. */
+static char *suite_file(const char *suite, const char *name, size_t *size)
+{
+    char path[1024];
+    FILE *fp;
+    long n;
+    char *data;
+    snprintf(path, sizeof path, "%s/%s", suite, name);
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return NULL;
+    }
+    fseek(fp, 0, SEEK_END);
+    n = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    data = (char *)malloc((size_t)n + 1);
+    if (data != NULL && fread(data, 1, (size_t)n, fp) != (size_t)n) {
+        free(data);
+        data = NULL;
+    }
+    fclose(fp);
+    *size = (size_t)n;
+    return data;
+}
+
+/* The lines that verified, with a trusted key or a key of the file's signers (sections 12 and 17.2). */
+static void test_verified_lines(const char *suite)
+{
+    static const char *const NAMES[] = {"updates/files/v5-both.mncf", "updates/files/v5-one.mncf",
+                                        "updates/files/v5-one-bare.mncf", "updates/files/v5-one-changed.mncf"};
+    char *data[4];
+    size_t size[4], i;
+    mncf_error err;
+    mncf_file *f[4];
+    mncf_trust *t = mncf_trust_new(NULL);
+    uint8_t one[32], two[32];
+    mncf_update *u;
+    unhex(RFC8032[0][0], one, 32);
+    unhex(RFC8032[1][0], two, 32);
+    for (i = 0; i < 4; i++) {
+        data[i] = suite_file(suite, NAMES[i], &size[i]);
+        CHECK(data[i] != NULL);
+        f[i] = data[i] != NULL ? mncf_load(data[i], size[i], NULL, NULL, &err) : NULL;
+        CHECK(f[i] != NULL);
+    }
+    if (f[0] != NULL && f[1] != NULL && f[2] != NULL && f[3] != NULL) {
+        const mncf_signature *s = &mncf_file_info_of(f[0])->signature;
+        CHECK(s->result == MNCF_SIGNATURE_UNKNOWN_KEY && s->verified_count == 2 &&
+              strcmp(s->verified_ids[0], "21fe31dfa154a261") == 0 && memcmp(s->verified_keys[0], one, 32) == 0 &&
+              strcmp(s->verified_ids[1], "39f713d0a644253f") == 0 && memcmp(s->verified_keys[1], two, 32) == 0);
+        s = &mncf_file_info_of(f[2])->signature;
+        CHECK(s->result == MNCF_SIGNATURE_UNKNOWN_KEY && s->verified_count == 0 && s->key_id_count == 1);
+        s = &mncf_file_info_of(f[3])->signature;
+        CHECK(s->result == MNCF_SIGNATURE_INVALID && s->verified_count == 0 && s->key_id_count == 1);
+        /* a line whose key is trusted verifies with that key, and also counts for step 6 */
+        mncf_trust_add(t, "Test key one", one);
+        mncf_free(f[1]);
+        f[1] = mncf_load(data[1], size[1], t, NULL, &err);
+        s = f[1] != NULL ? &mncf_file_info_of(f[1])->signature : NULL;
+        CHECK(s != NULL && s->result == MNCF_SIGNATURE_VERIFIED && s->signer_count == 1 && s->verified_count == 1 &&
+              memcmp(s->verified_keys[0], one, 32) == 0);
+        u = mncf_update_check(f[2], data[0], size[0], NULL, NULL, &err);
+        CHECK(u != NULL && strcmp(mncf_update_info_of(u)->reason, "update:version") == 0);
+        mncf_update_free(u);
+    }
+    for (i = 0; i < 4; i++) {
+        mncf_free(f[i]);
+        free(data[i]);
+    }
+    mncf_trust_free(t);
+}
+
 static void test_suite_files(const char *suite)
 {
     char path[1024];
@@ -1168,6 +1621,7 @@ static void test_suite_files(const char *suite)
           strcmp(mncf_file_info_of(f)->signature.key_ids[0], "21fe31dfa154a261") == 0);
     mncf_free(f);
     free(data);
+    test_verified_lines(suite);
 }
 
 /* Runs a test and says how it went. */
@@ -1198,6 +1652,11 @@ int main(int argc, char **argv)
     RUN(test_api);
     RUN(test_sections);
     RUN(test_runtime_gaps);
+    RUN(test_update_forms);
+    RUN(test_update_keys);
+    RUN(test_update_check);
+    RUN(test_update_settings);
+    RUN(test_update_packs);
     RUN(test_allocation_failures);
     if (argc > 1) {
         test_suite_files(argv[1]);

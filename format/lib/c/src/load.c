@@ -1,5 +1,5 @@
-/* load.c: reads an .mncf file: its size, its encoding, its TOML, its signature lines and its schema
- * (spec, sections 2, 4 to 9 and 12, Appendix D). MIT License. */
+/* load.c: reads an .mncf file: its size, its encoding, its TOML, its schema and its signature lines
+ * (spec, sections 2, 4 to 9, 12 and 17, Appendix D). MIT License. */
 #include "model.h"
 
 #include <stdio.h>
@@ -98,12 +98,14 @@ mncf_file *mncf_load(const void *data, size_t size, const mncf_trust *trust, con
         mncf_free(f);
         return NULL;
     }
-    if (!mn_signature_check(bytes, size, trust, &f->arena, &f->info.signature)) {
-        mn_error_nomem(err);
+    if (!mn_build_file(f, doc, err)) {
         mncf_free(f);
         return NULL;
     }
-    if (!mn_build_file(f, doc, err)) {
+    /* After the schema, so that a key of the file's own `signers` can check a line (section 12). */
+    if (!mn_signature_check(bytes, size, trust, f->info.signers, f->info.signer_count, &f->arena,
+                            &f->info.signature)) {
+        mn_error_nomem(err);
         mncf_free(f);
         return NULL;
     }

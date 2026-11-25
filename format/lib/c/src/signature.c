@@ -122,8 +122,7 @@ static int lower_hex16(const char *s, size_t n)
     return 1;
 }
 
-/* Whether the text is the base64 of exactly 32 bytes, written as base64 writes them; out gets them. */
-static int public_key_of(const char *s, size_t n, uint8_t out[32])
+int mn_public_key_of(const char *s, size_t n, uint8_t out[32])
 {
     char again[48];
     long got;
@@ -187,7 +186,7 @@ mncf_trust *mncf_trust_read(const char *text, size_t size, const mncf_allocator 
             uint8_t raw[32];
             char kid[17];
             if (!mn_toml_is(name, MNCF_TOML_STRING) || name->u.s.n == 0 || !mn_toml_is(pub, MNCF_TOML_STRING) ||
-                !public_key_of(pub->u.s.p, pub->u.s.n, raw)) {
+                !mn_public_key_of(pub->u.s.p, pub->u.s.n, raw)) {
                 mn_error(err, MNCF_ERR_SCHEMA, "schema:key",
                          "a key needs a `name` and a `public` key of 32 bytes in base64");
                 goto fail;
@@ -318,19 +317,60 @@ static int push_str(mn_arena *ar, const char ***items, size_t *count, size_t *ca
     return 1;
 }
 
-int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, mn_arena *ar,
-                       mncf_signature *sig)
+/* The lines that verified, as the check finds them. */
+typedef struct sig_verified {
+    const char **ids;
+    uint8_t (*keys)[32];
+    size_t count, id_cap, key_cap;
+} sig_verified;
+
+/* Notes a line that verified with a key: its key id once, with the first key it verified with. */
+static int push_verified(mn_arena *ar, sig_verified *v, const char *kid, const uint8_t key[32])
+{
+    size_t i;
+    char *copy;
+    for (i = 0; i < v->count; i++) {
+        if (strcmp(v->ids[i], kid) == 0) {
+            return 1;
+        }
+    }
+    copy = mn_arena_strdup(ar, kid);
+    if (copy == NULL || MN_GROW(ar, v->ids, v->count, v->id_cap) == NULL ||
+        MN_GROW(ar, v->keys, v->count, v->key_cap) == NULL) {
+        return 0;
+    }
+    v->ids[v->count] = copy;
+    memcpy(v->keys[v->count], key, 32);
+    v->count++;
+    return 1;
+}
+
+int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, const uint8_t (*own)[32],
+                       size_t own_count, mn_arena *ar, mncf_signature *sig)
 {
     size_t start = mn_signature_split(data, n);
     size_t pos;
     int seen[5] = {0, 0, 0, 0, 0};
+    sig_verified verified;
     const char **signers = NULL, **kids = NULL;
     size_t signer_count = 0, signer_cap = 0, kid_count = 0, kid_cap = 0;
+    char(*own_ids)[17] = NULL;
+    memset(&verified, 0, sizeof verified);
     memset(sig, 0, sizeof *sig);
     sig->signed_size = start;
     sig->result = MNCF_SIGNATURE_UNSIGNED;
     if (start == n) {
         return 1;
+    }
+    if (own_count > 0) {
+        size_t i;
+        own_ids = (char(*)[17])mn_arena_alloc(ar, own_count * sizeof *own_ids);
+        if (own_ids == NULL) {
+            return 0;
+        }
+        for (i = 0; i < own_count; i++) {
+            mncf_key_id(own[i], own_ids[i]);
+        }
     }
     /* Only signature lines may follow the first one; an empty last line is the file's last line end. */
     for (pos = start; pos < n; pos++) {
@@ -376,15 +416,30 @@ int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, m
                     any = 1;
                     if (mncf_ed25519_verify(trust->keys[i].pub, data, start, raw)) {
                         good = 1;
-                        if (!push_str(ar, &signers, &signer_count, &signer_cap, trust->keys[i].name)) {
+                        if (!push_str(ar, &signers, &signer_count, &signer_cap, trust->keys[i].name) ||
+                            !push_verified(ar, &verified, kid, trust->keys[i].pub)) {
                             return 0;
                         }
                     }
                 }
-                if (!any) {
-                    seen[MNCF_SIGNATURE_UNKNOWN_KEY] = 1;
-                } else {
+                if (any) {
                     seen[good ? MNCF_SIGNATURE_VERIFIED : MNCF_SIGNATURE_INVALID] = 1;
+                } else {
+                    /* A key of the file's own `signers` checks the line; the last one with the id counts. */
+                    size_t k = own_count;
+                    while (k > 0 && strcmp(own_ids[k - 1], kid) != 0) {
+                        k--;
+                    }
+                    if (k == 0) {
+                        seen[MNCF_SIGNATURE_UNKNOWN_KEY] = 1;
+                    } else if (mncf_ed25519_verify(own[k - 1], data, start, raw)) {
+                        seen[MNCF_SIGNATURE_UNKNOWN_KEY] = 1;
+                        if (!push_verified(ar, &verified, kid, own[k - 1])) {
+                            return 0;
+                        }
+                    } else {
+                        seen[MNCF_SIGNATURE_INVALID] = 1;
+                    }
                 }
             }
         }
@@ -392,6 +447,9 @@ int mn_signature_check(const uint8_t *data, size_t n, const mncf_trust *trust, m
     }
     sig->key_ids = kids;
     sig->key_id_count = kid_count;
+    sig->verified_ids = verified.ids;
+    sig->verified_keys = (const uint8_t(*)[32])verified.keys;
+    sig->verified_count = verified.count;
     if (seen[MNCF_SIGNATURE_INVALID]) {
         sig->result = MNCF_SIGNATURE_INVALID;
     } else if (seen[MNCF_SIGNATURE_REVOKED]) {

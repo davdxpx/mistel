@@ -3,8 +3,9 @@
  *
  * The C library of format/: parse and check a file, check its signature lines against trusted keys, read
  * packs, identify the build that runs, resolve every location, give each cheat its state, reason and the
- * bytes a runtime writes, and run the cheats pass by pass (spec, section 11.5). C99, no dependencies, no
- * global state. MIT License, as all of format/.
+ * bytes a runtime writes, run the cheats pass by pass (spec, section 11.5), and take new versions of a file
+ * without losing what the player set (section 17). C99, no dependencies, no global state. MIT License, as
+ * all of format/.
  *
  *     mncf_error err;
  *     mncf_file *f = mncf_load(data, size, trust, NULL, &err);    // NULL: err.code says why
@@ -31,9 +32,9 @@ extern "C" {
 #endif
 
 #define MNCF_VERSION_MAJOR 1
-#define MNCF_VERSION_MINOR 0
+#define MNCF_VERSION_MINOR 1
 #define MNCF_VERSION_PATCH 0
-#define MNCF_VERSION "1.0.0"
+#define MNCF_VERSION "1.1.0"
 /* The version as one number, major * 10000 + minor * 100 + patch. */
 #define MNCF_VERSION_NUMBER (MNCF_VERSION_MAJOR * 10000 + MNCF_VERSION_MINOR * 100 + MNCF_VERSION_PATCH)
 
@@ -194,6 +195,12 @@ typedef struct mncf_signature {
     const char *const *key_ids;     /* key ids of every well-formed ed25519 line, in order */
     size_t key_id_count;
     size_t signed_size;             /* how many bytes at the start a signature covers */
+    /* The lines that verified, with a trusted key or a key of the file's `signers` (sections 12 and 17.2):
+     * each key id once, in the order of the lines, and the public key it verified with. Set for every
+     * result, also for "unknown-key" and "invalid". */
+    const char *const *verified_ids;
+    const uint8_t (*verified_keys)[32];
+    size_t verified_count;
 } mncf_signature;
 
 /* ---- A file ----------------------------------------------------------------------------------------- */
@@ -302,6 +309,28 @@ typedef struct mncf_preset {
     size_t value_count;
 } mncf_preset;
 
+/* A name and the name it becomes: a cheat id or a pack path before and after. `to` is NULL where there is
+ * none after. */
+typedef struct mncf_name_pair {
+    const char *from;
+    const char *to;
+} mncf_name_pair;
+
+/* One change entry (`[[changes]]`, section 17.1). In a pack manifest, the lists name paths of the pack. */
+typedef struct mncf_release {
+    const char *version;
+    const char *date;               /* "YYYY-MM-DD", or NULL */
+    const char *text;               /* NULL where not given; mncf_release_text translates it */
+    const char *const *added;       /* the lists in the order of the file */
+    size_t added_count;
+    const char *const *fixed;
+    size_t fixed_count;
+    const char *const *removed;
+    size_t removed_count;
+    const mncf_name_pair *renamed;  /* from the id in the version before to the id in this one */
+    size_t renamed_count;
+} mncf_release;
+
 /* What a file says, outside its cheats' operations. */
 typedef struct mncf_file_info {
     const char *name;
@@ -328,11 +357,20 @@ typedef struct mncf_file_info {
     size_t cheat_count;
     const mncf_preset *presets;
     size_t preset_count;
-    const char *const *warnings;    /* "unknown-key:<key>", "preset:<id>", "i18n" */
+    const char *const *warnings;    /* "unknown-key:<key>", "preset:<id>", "i18n", "signers", "id", "update",
+                                     * "changes", "changes:<version or position>" */
     size_t warning_count;
     mncf_signature signature;
     const mncf_toml *document;      /* the whole document */
     const mncf_toml *i18n;          /* the i18n table, or NULL where there is none or it was ignored */
+    /* Section 17. Keys that break its rules are left out, with a warning. */
+    const char *id;                 /* the file's identity across its versions, or NULL */
+    const uint8_t (*signers)[32];   /* the public keys of `signers` (section 12) */
+    size_t signer_count;
+    const char *update_url;         /* `update.url`, or NULL where the file has no [update] it can use */
+    const char *update_host;        /* the host of update_url, or NULL */
+    const mncf_release *changes;    /* the change entries, newest first */
+    size_t change_count;
 } mncf_file_info;
 
 MNCF_API const mncf_file_info *mncf_file_info_of(const mncf_file *file);
@@ -621,6 +659,15 @@ typedef struct mncf_pack_info {
     const mncf_pack_file *files;
     size_t file_count;
     int usable;                     /* 0 where the manifest's signature is invalid or revoked */
+    /* The keys of section 17 for the pack as a whole (section 17.6), as in mncf_file_info. The lists of
+     * the change entries name paths of the pack. */
+    const char *id;
+    const uint8_t (*signers)[32];
+    size_t signer_count;
+    const char *update_url;
+    const char *update_host;
+    const mncf_release *changes;
+    size_t change_count;
 } mncf_pack_info;
 
 typedef struct mncf_pack mncf_pack;
@@ -631,11 +678,130 @@ MNCF_API mncf_pack *mncf_pack_read(const void *data, size_t size, const mncf_tru
 MNCF_API const mncf_pack_info *mncf_pack_info_of(const mncf_pack *pack);
 MNCF_API void mncf_pack_free(mncf_pack *pack);
 
-/* Limits (spec Appendix D). */
+/* ---- Updates (section 17) --------------------------------------------------------------------------- */
+
+/* The forms of section 17. A version is 1 to 8 whole numbers of 1 to 9 decimal digits, separated by dots. */
+MNCF_API int mncf_version_valid(const char *text);
+/* *result gets -1, 0 or 1 as version a is below, the same as or above version b: number by number from the
+ * left, a missing number counting as 0. MNCF_ERR_ARGUMENT where one of them is not a version. */
+MNCF_API mncf_status mncf_version_compare(const char *a, const char *b, int *result);
+/* Whether the text is a file id: 1 to 128 characters, lower-case ASCII letters, digits, '.', '-' and '_',
+ * in parts separated by '/', none of them empty, "." or "..". */
+MNCF_API int mncf_file_id_valid(const char *text);
+/* Whether the text is a day of the Gregorian calendar as "YYYY-MM-DD". */
+MNCF_API int mncf_date_valid(const char *text);
+/* The length of the host of an address that section 17.3 allows, or 0 where it does not allow it. host
+ * (NULL where size is 0) gets the host, cut to size - 1 bytes, and a NUL byte; MNCF_MAX_URL + 1 bytes
+ * always hold it. */
+MNCF_API size_t mncf_update_url_host(const char *url, char *host, size_t size);
+
+/* Whether a file is a new version of the one a runtime holds (section 17.2). */
+typedef struct mncf_update mncf_update;
+
+typedef struct mncf_update_info {
+    const char *reason;             /* "" where the new file is taken, else a reason of Appendix E */
+    const char *from_version;       /* the file_version of the file the runtime holds, or NULL */
+    const char *to_version;         /* the file_version of the new file, or NULL where it has none or does
+                                     * not load */
+    const mncf_file *file;          /* the new file where it loads, also where it is not taken; else NULL */
+    const mncf_pack *pack;          /* the same for mncf_pack_update_check */
+} mncf_update_info;
+
+/* Checks the bytes of a new file against the loaded file `installed`, in the order of section 17.2. Load
+ * `installed` with the same trust list, so that both signatures are checked against the keys trusted now.
+ * A new file that does not load gives "update:error:<code>"; NULL with err only on no memory or a wrong
+ * argument. The new file is read with alloc (NULL: malloc) and belongs to the result. */
+MNCF_API mncf_update *mncf_update_check(const mncf_file *installed, const void *data, size_t size,
+                                        const mncf_trust *trust, const mncf_allocator *alloc, mncf_error *err);
+/* The same for packs (section 17.6): the pack's errors for step 1, the manifest's signature, no game. */
+MNCF_API mncf_update *mncf_pack_update_check(const mncf_pack *installed, const void *data, size_t size,
+                                             const mncf_trust *trust, const mncf_allocator *alloc,
+                                             mncf_error *err);
+MNCF_API const mncf_update_info *mncf_update_info_of(const mncf_update *update);
+/* The new file or pack, which is then the caller's, to free with mncf_free or mncf_pack_free; the result
+ * gives NULL for it from then on. */
+MNCF_API mncf_file *mncf_update_take_file(mncf_update *update);
+MNCF_API mncf_pack *mncf_update_take_pack(mncf_update *update);
+MNCF_API void mncf_update_free(mncf_update *update);
+
+/* How many of the change entries, newest first as a file or pack info gives them, are above `version`:
+ * those at the start of the array are the entries to show to a player who has that version (section
+ * 17.4). version NULL, or not a version, counts as below every version: all of them. */
+MNCF_API size_t mncf_releases_since(const mncf_release *changes, size_t count, const char *version);
+/* The text of a change entry of a file in a language (a BCP 47 tag): i18n.<tag>.changes."<version>".text
+ * where the file has it, else the entry's own text, NULL where it has none. file may be NULL, as for a
+ * pack, and language NULL or "": the entry's own text. */
+MNCF_API const char *mncf_release_text(const mncf_file *file, const mncf_release *release, const char *language);
+
+/* Where the cheats of the version `version` of a file are in the new version `file` (section 17.5): out[i]
+ * gets the id that names[i] has in `file`, or NULL where the cheat is gone. The ids follow the change
+ * entries above `version` (NULL: all of them), oldest first. The strings are the file's. */
+MNCF_API mncf_status mncf_ids(const mncf_file *file, const char *version, const char *const *names, size_t count,
+                              const char **out, mncf_error *err);
+
+/* The cheats to mark in a new version for a player who had `version` (section 17.4). */
+typedef struct mncf_marks {
+    const char *const *new_ids;     /* cheats to mark as new, ids of the file in file order */
+    size_t new_count;
+    const char *const *fixed_ids;   /* cheats to mark as fixed and not as new, in file order */
+    size_t fixed_count;
+} mncf_marks;
+
+/* Made with the file's allocator; it uses the file's strings, so the file must outlive it. */
+MNCF_API mncf_marks *mncf_mark(const mncf_file *file, const char *version, mncf_error *err);
+MNCF_API void mncf_marks_free(mncf_marks *found);
+
+/* A value that goes back to its default in the new version: its key there and why. */
+typedef struct mncf_value_reset {
+    const char *key;                /* "cheat.value", with the cheat's id in the new version */
+    const char *why;                /* "type", "range" or "choice" */
+} mncf_value_reset;
+
+/* What the player set, moved to a new version (section 17.5). */
+typedef struct mncf_carried {
+    mncf_choices choices;           /* on, off and values with the ids of the new version */
+    const char *preset;             /* the preset the player chose, or NULL where the new version has none */
+    const mncf_name_pair *ids;      /* each cheat id seen, in the order seen: its id in the new version */
+    size_t id_count;
+    const char *const *dropped;     /* the cheat ids whose settings were dropped, in the order seen */
+    size_t dropped_count;
+    const char *const *gone;        /* "cheat.value" keys whose value the cheat no longer has */
+    size_t gone_count;
+    const mncf_value_reset *reset;  /* values back at their default, which the runtime names to the player */
+    size_t reset_count;
+} mncf_carried;
+
+/* Moves what the player set for the version `version` of a file to the new version `file`: the cheats
+ * switched on and off and the values, as mncf_choices gives them (where a key is given twice, the last
+ * value counts), and the preset (NULL for none). `kept` names cheats for which the runtime keeps something
+ * else, such as a crash answer, so that their new ids are in the result's `ids` too. A value keeps what
+ * the player chose where it fits the value of the new version as the evaluator checks it. Made with the
+ * file's allocator, with strings of its own. */
+MNCF_API mncf_carried *mncf_carry(const mncf_file *file, const char *version, const mncf_choices *choices,
+                                  const char *preset, const char *const *kept, size_t kept_count,
+                                  mncf_error *err);
+MNCF_API void mncf_carried_free(mncf_carried *carried);
+
+/* The files of an old pack matched with those of a new one (section 17.6). */
+typedef struct mncf_pairs {
+    const mncf_name_pair *items;    /* each file of the old pack, in its order: its path, and the path of
+                                     * the file of the new pack it is matched with, or NULL */
+    size_t count;
+} mncf_pairs;
+
+/* A file is matched with the file of the new pack that has the same id and game, else by its path,
+ * following the `renamed` of the new pack's change entries, where one of the two has no id. Made with the
+ * old pack's allocator, with strings of its own. */
+MNCF_API mncf_pairs *mncf_pack_pairs(const mncf_pack *old_pack, const mncf_pack *new_pack, mncf_error *err);
+MNCF_API void mncf_pairs_free(mncf_pairs *pairs);
+
+/* Limits (spec Appendix D, section 17). */
 #define MNCF_MAX_FILE (16u * 1024u * 1024u)
 #define MNCF_MAX_PACK_ENTRIES 4096u
 #define MNCF_MAX_PACK_TOTAL (256u * 1024u * 1024u)
 #define MNCF_MAX_DEPTH 128
+#define MNCF_MAX_FILE_ID 128u
+#define MNCF_MAX_URL 2048u
 
 #ifdef __cplusplus
 }

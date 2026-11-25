@@ -6,8 +6,9 @@ A C library that reads files of the Mistel Native Cheat Format, version 1 (`mncf
 - **Evaluate:** for a runtime, it identifies the build that runs, resolves every place (module offsets, offsets per build, patterns, regions, absolute addresses, pointer paths through the caller's memory reader) and gives each cheat its state, reason and the bytes to write: patches, writes in the platform's byte order, override stubs, `arm64-imm/1` instructions.
 - **Run:** the pass engine of spec section 11.5: it takes what the player does and the guest memory of each pass, and gives the patches, restores, hooks and writes of the pass as one batch, each cheat's state and what the monitors read.
 - **Packs:** it reads packs (`.mncp`): the ZIP file, stored or deflated, the manifest, its signature and the hash of each file, within the size limits.
+- **Updates:** the keys of spec section 17 (`id`, `signers`, `[update]`, `[[changes]]`), whether a file or pack is a new version of the one a runtime holds, the change entries to show, the cheats to mark, and what the player set, moved to the new version.
 
-It does not write files or convert other cheat formats yet; that is for a later version. The Python library is the reference, and this library passes the conformance suite in [`../../tests/`](../../tests/) with the same results: every file case, pack case and pass case. Its `--dump` output is the same as the Python runner's, byte for byte (the conversion cases aside).
+It does not write files or convert other cheat formats yet; that is for a later version. The Python library is the reference, and this library passes the conformance suite in [`../../tests/`](../../tests/) with the same results: every file case, pack case, pass case and update case. Its `--dump` output is the same as the Python runner's, byte for byte (the conversion cases aside).
 
 C99, no dependencies, no global state. SHA-256, SHA-512, Ed25519 verification, the TOML 1.0 parser, the ZIP reader and the inflater are written for this library. Under the MIT License, like everything in [`format/`](../../).
 
@@ -133,6 +134,41 @@ mncf_trust_free(trust);
 - The TOML parser is in the API too (`mncf_toml_parse`), and a file's whole document is at `info->document`, for the `i18n` table and anything else a runtime wants to show.
 - Game IDs compare without regard to ASCII case; the Python reference also folds other letters, which no game ID of Appendix A has.
 
+## Updates
+
+A file names itself across its versions with `id`, and its newest version with `update.url` (spec, section 17). The library reads these keys and never connects anywhere: fetching the new file is the runtime's, as section 17.3 says.
+
+```c
+const mncf_file_info *info = mncf_file_info_of(file);
+/* info->id, info->update_url and info->update_host (NULL where the file has none it can use),
+ * info->signers, and info->changes: the change entries, newest first */
+
+mncf_update *u = mncf_update_check(file, new_bytes, new_size, trust, NULL, &err);
+const mncf_update_info *ui = mncf_update_info_of(u);
+if (ui->reason[0] == 0) {                                /* else "update:game", "update:signer", ... */
+    const mncf_file *fresh = ui->file;
+    const mncf_file_info *fi = mncf_file_info_of(fresh);
+    size_t shown = mncf_releases_since(fi->changes, fi->change_count, info->file_version);
+    for (size_t i = 0; i < shown; i++) {                 /* what to show before the player says yes */
+        show(fi->changes[i].version, mncf_release_text(fresh, &fi->changes[i], "de"));
+    }
+    mncf_marks *marks = mncf_mark(fresh, info->file_version, &err);      /* new and fixed cheats */
+    mncf_carried *c = mncf_carry(fresh, info->file_version, &choices, "relaxed", NULL, 0, &err);
+    /* c->choices with the new ids, c->preset, c->ids, c->dropped, c->gone, c->reset */
+    mncf_carried_free(c);
+    mncf_marks_free(marks);
+    mncf_file *taken = mncf_update_take_file(u);         /* keep the new version after freeing u */
+    mncf_free(taken);
+}
+mncf_update_free(u);
+```
+
+- The steps of section 17.2 run in their order, and the first that does not hold is the reason, as Appendix E names it. A new file that does not load gives `update:error:<code>`; the check itself fails only without memory or with a wrong argument.
+- `mncf_signature` gives the key ids and public keys of the lines that verified (`verified_ids`, `verified_keys`), with a trusted key or a key of the file's `signers`. A line by a `signers` key that does not verify makes the file `invalid`, as section 12 says.
+- `mncf_carry` keeps a value where it still fits the value of the new version, checked as the evaluator checks a value the player chose; otherwise the value goes back to its default and is in `reset`, with `"type"`, `"range"` or `"choice"`. `mncf_ids` gives the id mapping alone.
+- For packs, `mncf_pack_update_check` checks a new pack, and `mncf_pack_pairs` matches each file of the old pack with one of the new pack (section 17.6).
+- The forms have functions of their own: `mncf_version_valid`, `mncf_version_compare`, `mncf_file_id_valid`, `mncf_date_valid` and `mncf_update_url_host`.
+
 ## Tests
 
 ```sh
@@ -140,7 +176,7 @@ ctest --test-dir build --output-on-failure
 python format/lib/c/tests/compare_dump.py build/mncf_conformance
 ```
 
-- `mncf_unit` holds the unit tests: the hashes against FIPS 180-4's examples, Ed25519 against the vectors of RFC 8032 and the rules the format adds, base64 and CRC-32, the inflater against zlib's output, ZIP files stored, deflated, broken and too large, the TOML parser, exact number comparisons, the override stubs and `arm64-imm/1` instructions, trust lists, signature results, the API's errors, and a run of loading, evaluating, the engine and a pack in which every allocation fails in turn, without a crash or a leak.
+- `mncf_unit` holds the unit tests: the hashes against FIPS 180-4's examples, Ed25519 against the vectors of RFC 8032 and the rules the format adds, base64 and CRC-32, the inflater against zlib's output, ZIP files stored, deflated, broken and too large, the TOML parser, exact number comparisons, the override stubs and `arm64-imm/1` instructions, trust lists, signature results, the API's errors, the forms and functions of updates, and a run of loading, evaluating, the engine, a pack and updates in which every allocation fails in turn, without a crash or a leak.
 - `mncf_conformance <format/tests>` runs the whole conformance suite; with `--dump` it prints each case's results as JSON, as `format/lib/python/tests/conformance.py --dump` does.
 - `tests/compare_dump.py` runs the Python runner and this runner and compares their JSON byte for byte.
 
