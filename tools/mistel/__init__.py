@@ -1,4 +1,5 @@
-"""The `mistel` tools for people who make cheats: check, convert, pattern, sign, verify, pack and keygen.
+"""The `mistel` tools for people who make cheats: check, convert, pattern, sign, verify, pack, keygen, release and
+update-check.
 
 The tools read, write and convert `.mncf` files with the MIT library in format/lib/python. Installed, that library is
 the `mncf` package; run from a checkout of the repository, it is found next to the tools.
@@ -13,4 +14,4 @@ except ImportError:
     if (_reader / 'mncf').is_dir():
         sys.path.insert(0, str(_reader))
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'

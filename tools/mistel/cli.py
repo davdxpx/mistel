@@ -10,7 +10,7 @@ from mncf import atmosphere, convert, disasm, patches
 from mncf.module import ModuleError, module_from_bytes, read_runs
 from mncf.pattern import make_pattern
 
-from . import __version__, check as checking, keys, port as porting
+from . import __version__, check as checking, fetch, keys, port as porting, release
 
 _HEX16 = re.compile(r'^[0-9A-Fa-f]{16}$')
 
@@ -221,8 +221,12 @@ def cmd_keygen(args):
 def cmd_sign(args):
     name, seed = keys.read_secret(args.key)
     for path in args.files:
-        keys.sign_file(path, seed, args.output if len(args.files) == 1 else None)
+        listed = keys.sign_file(path, seed, args.output if len(args.files) == 1 else None)
         print(f'signed {args.output or path} with {name}')
+        if not listed:
+            print(f'{name} is not in the signers of {path}, which was signed already: a runtime that does not trust '
+                  f'the key cannot check this signature. Sign new versions with mistel release --sign, which lists '
+                  f'every key before it signs')
     return 0
 
 
@@ -237,11 +241,45 @@ def cmd_verify(args):
 
 
 def cmd_pack(args):
+    from mncf import update
+    from mncf.pack import read_pack
     files = [(pathlib.Path(p).name, pathlib.Path(p).read_bytes()) for p in args.files]
-    seed = keys.read_secret(args.sign)[1] if args.sign else None
-    data = keys.make_pack(files, args.name, args.author, args.about, args.file_version, seed)
+    seeds = [keys.read_secret(k)[1] for k in args.sign or []]
+    previous = read_pack(pathlib.Path(args.previous).read_bytes()) if args.previous else None
+    version, changes, pack_id, url = args.file_version, [], args.id, args.url
+    if previous is not None:
+        pack_id = pack_id or previous.id
+        url = url or (previous.update.url if previous.update else None)
+        version = version or release.next_version(previous.file_version)
+        if not update.above(version, previous.file_version):
+            raise ValueError(f'version {version} is not above the previous version {previous.file_version}')
+
+        class _Files:
+            def __init__(self, paths):
+                self.files = [type('F', (), {'path': x})() for x in paths]
+
+        added, fixed, removed, renamed = release.diff(previous, _Files([n for n, _ in files]),
+                                                      release._pairs(args.renamed), args.fixed)
+        changes = [update.Release(version, args.date or release.datetime.date.today().isoformat(), args.text,
+                                  added, fixed, removed, renamed)] + list(previous.changes)
+    elif args.text:
+        if not update.is_version(version):
+            raise ValueError('a change entry needs --file-version, numbers separated by dots')
+        changes = [update.Release(version, args.date or release.datetime.date.today().isoformat(), args.text)]
+    if (url or changes) and not update.is_version(version):
+        raise ValueError('a pack with --url or change entries needs --file-version, numbers separated by dots')
+    if url and not pack_id:
+        raise ValueError('a pack with --url needs --id, so that runtimes can tell its versions apart')
+    data = keys.make_pack(files, args.name, args.author, args.about, version, pack_id=pack_id, url=url,
+                          changes=changes, seeds=seeds)
+    if previous is not None:
+        check = update.check_pack(previous, data)
+        if not check.ok and not args.force:
+            raise ValueError(f'runtimes would not take this pack as a new version of {args.previous}: '
+                             f'{check.reason}{_why(check.reason)}; --force writes it anyway')
     pathlib.Path(args.output).write_bytes(data)
-    print(f'wrote {args.output}: {len(files)} files' + (', manifest signed' if seed else ''))
+    print(f'wrote {args.output}: {len(files)} files' + (f', version {version}' if version else '') +
+          (', manifest signed' if seeds else ''))
     return 0
 
 
@@ -264,6 +302,102 @@ def cmd_port(args):
         if c.raw and c.outcome != 'raw':
             print(f'  {c.id}: its raw code is for build {p.old_key} only (raw code is not ported yet)')
     return 0
+
+WHY = {
+    'update:signature': ', its signature does not verify',
+    'update:game': ', it is for another game',
+    'update:id': ', it has another id or none',
+    'update:version': ', its version is not above the one before',
+    'update:signer': ', the version before is signed and no key that signed it signs this one; to change keys, sign '
+                     'one version with the old key and the new one',
+}
+
+
+def _why(reason):
+    if reason.startswith('update:error:'):
+        return ', it does not load'
+    return WHY.get(reason, '')
+
+
+def cmd_release(args):
+    from mncf import update
+    path = pathlib.Path(args.file)
+    text = path.read_bytes().decode('utf-8')
+    current = mncf.load(text.encode('utf-8'))
+    previous = mncf.load(pathlib.Path(args.previous).read_bytes()) if args.previous else None
+    seeds = [keys.read_secret(k) for k in args.sign or []]
+    made = release.make(text, current, previous, args.version, args.text, args.date, args.renamed, args.fixed,
+                        args.id, args.url, release.public_keys([s for _, s in seeds]))
+    data = release.sign(made.text, [s for _, s in seeds])
+    if previous is not None:
+        if previous.id is None:
+            made.notes.append(f'{args.previous} has no id, so runtimes take this version as a new file; from it on, '
+                              f'new versions reach players')
+        else:
+            check = update.check(previous, data)
+            if not check.ok and not args.force:
+                raise ValueError(f'runtimes would not take this as a new version of {args.previous}: '
+                                 f'{check.reason}{_why(check.reason)}; --force writes it anyway')
+            if not check.ok:
+                made.notes.append(f'runtimes will not take it as a new version: {check.reason}')
+    out = pathlib.Path(args.output) if args.output else path
+    out.write_bytes(data)
+    e = made.entry
+    print(f'wrote {out}: version {made.version}' + (f', signed with {", ".join(n for n, _ in seeds)}' if seeds
+                                                    else ''))
+    if made.written:
+        for key in ('added', 'fixed', 'removed'):
+            if getattr(e, key):
+                print(f'  {key}: {", ".join(getattr(e, key))}')
+        for a, b in e.renamed.items():
+            print(f'  renamed: {a} to {b}')
+    for note in made.notes:
+        print(note)
+    return 0
+
+
+def cmd_update_check(args):
+    from mncf import update
+    from mncf.pack import read_pack
+    trust = keys.trust_list(args.trust or [], args.revoked or [])
+    path = pathlib.Path(args.file)
+    is_pack = path.suffix == '.mncp'
+    held = read_pack(path.read_bytes(), trust) if is_pack else mncf.load(path.read_bytes(), trust)
+    if held.update is None:
+        print(f'{path.name} has no [update] that a runtime can use' +
+              ('' if held.id else ', and no id'))
+        return 1
+    if args.new:
+        data, where = pathlib.Path(args.new).read_bytes(), args.new
+    else:
+        got = fetch.fetch(held.update.url, pack=is_pack)
+        data, where = got.data, got.url
+        print(f'asked {held.update.url}' + (f', answered by {got.url}' if got.url != held.update.url else '') +
+              f': {len(got.data)} bytes')
+    check = (update.check_pack if is_pack else update.check)(held, data, trust)
+    new = check.file
+    if new is None:
+        print(f'{where} is not a usable {"pack" if is_pack else ".mncf file"}: {check.reason}')
+        return 1
+    if check.reason in ('', 'update:version'):
+        order = 'newer' if check.ok else ('the same version' if update.is_version(new.file_version) and
+                                          update.is_version(held.file_version) and
+                                          update.compare(new.file_version, held.file_version) == 0 else 'older')
+        print(f'version {new.file_version or "none"} at the address, {held.file_version or "none"} here: {order}')
+        if check.ok:
+            for r in update.since(new, held.file_version):
+                print(f'  {r.version}' + (f' ({r.date})' if r.date else '') + (f': {r.text}' if r.text else ''))
+            if not is_pack:
+                marked_new, marked_fixed = update.marks(new, held.file_version)
+                if marked_new:
+                    print(f'  new: {", ".join(marked_new)}')
+                if marked_fixed:
+                    print(f'  fixed: {", ".join(marked_fixed)}')
+        elif order == 'older':
+            print('runtimes never take an older version, so players keep the one they have')
+        return 0
+    print(f'runtimes would not take it as a new version: {check.reason}{_why(check.reason)}')
+    return 1
 
 
 def parser():
@@ -332,8 +466,17 @@ def parser():
     a.add_argument('--name', required=True)
     a.add_argument('--author', action='append')
     a.add_argument('--about')
-    a.add_argument('--file-version')
-    a.add_argument('--sign', help='a secret key file to sign the manifest with')
+    a.add_argument('--file-version', help='the pack\'s version; with --previous, the one after it by default')
+    a.add_argument('--sign', action='append', help='a secret key file to sign the manifest with; twice to change keys')
+    a.add_argument('--id', help='the pack\'s id across its versions (spec, section 17)')
+    a.add_argument('--url', help='the https address where the newest version of the pack will be')
+    a.add_argument('--previous', help='the pack\'s version before: its id, address and entries carry over, and the '
+                                      'new entry names the files added and removed')
+    a.add_argument('--text', help='what changed, for the players')
+    a.add_argument('--date', help='the day of the version, YYYY-MM-DD (default today)')
+    a.add_argument('--renamed', action='append', help='OLD=NEW: a file that has a new path in the pack')
+    a.add_argument('--fixed', action='append', help='a file of the pack that works again')
+    a.add_argument('--force', action='store_true', help='write it also where runtimes would not take it')
     a.set_defaults(run=cmd_pack)
     o = sub.add_parser('port', help="the places of a file's cheats in a new build of the game, from the old build's "
                                     "code")
@@ -347,6 +490,31 @@ def parser():
     o.add_argument('-o', '--output', help='where to write it (default: <file>.ported.mncf beside it)')
     o.add_argument('-v', '--verbose', action='store_true', help='say for each place what became of it')
     o.set_defaults(run=cmd_port)
+
+    e = sub.add_parser('release', help='a new version of an .mncf file: its version, a change entry, signatures')
+    e.add_argument('file', help='the .mncf file with the changes for the new version; it is changed in place')
+    e.add_argument('--previous', help='the version players have now: the entry names the cheats added and removed, '
+                                      'and the new version is checked against it as a runtime checks it')
+    e.add_argument('--version', help='the new version (default: the one after the previous version)')
+    e.add_argument('--text', help='what changed, for the players')
+    e.add_argument('--date', help='the day of the version, YYYY-MM-DD (default today)')
+    e.add_argument('--renamed', action='append', help='OLD=NEW: a cheat that has a new id, so that what players set '
+                                                      'for it follows it')
+    e.add_argument('--fixed', action='append', help='a cheat that works again in this version')
+    e.add_argument('--id', help='the file\'s id across its versions, once: such as github.com/someone/cheats')
+    e.add_argument('--url', help='the https address where the newest version of the file will be')
+    e.add_argument('--sign', action='append', help='a secret key file to sign with; twice to change keys')
+    e.add_argument('-o', '--output', help='write the new version here instead of in place')
+    e.add_argument('--force', action='store_true', help='write it also where runtimes would not take it')
+    e.set_defaults(run=cmd_release)
+
+    u = sub.add_parser('update-check', help='fetch the newest version from a file\'s [update] address, as a runtime '
+                                            'does, and say whether runtimes would take it')
+    u.add_argument('file', help='an .mncf file or an .mncp pack with [update]')
+    u.add_argument('--new', help='check this file instead of fetching the address')
+    u.add_argument('--trust', action='append', help='a public key file to trust')
+    u.add_argument('--revoked', action='append', help='a key id that is no longer trusted')
+    u.set_defaults(run=cmd_update_check)
     return p
 
 
@@ -354,7 +522,8 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         return args.run(args)
-    except (mncf.MncfError, keys.KeyFileError, ModuleError, atmosphere.AtmosphereError, ValueError, OSError) as e:
+    except (mncf.MncfError, keys.KeyFileError, ModuleError, atmosphere.AtmosphereError, ValueError, OSError,
+            fetch.FetchError) as e:
         print(f'mistel {args.command}: {e}', file=sys.stderr)
         return 1
 

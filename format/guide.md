@@ -213,3 +213,4 @@ renamed = { "max-iv" = "max-ivs" }
 - `url` is the address of the file itself, always the newest version: a file in a repository, or a release asset. Use `https`.
 - Write one `[[changes]]` entry for each version. Keep cheat ids the same where you can. Where you rename a cheat, say so in `renamed`, so that what players set for it follows it.
 - Once you sign a version, sign every later one with the same key, and list your public key in `signers`, so that a runtime can tell the new version comes from you. To change keys, sign one version with both keys.
+- `mistel release cheats.mncf --previous <the version players have> --text "..." --sign <your key>` does all of this: the next version, the entry with the cheats added and removed, `signers`, the signature, and a check that runtimes take it. `mistel update-check` then fetches your address as a runtime does ([tools](../tools/README.md#new-versions)).

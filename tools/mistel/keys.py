@@ -14,7 +14,7 @@ import tomllib
 import zipfile
 
 import mncf
-from mncf import ed25519, signature
+from mncf import ed25519, signature, update
 from mncf import write as writer
 from mncf.pack import read_pack, valid_path
 
@@ -120,14 +120,44 @@ def sign_bytes(data, seed):
     return data + signature.sign_line(seed, signed)
 
 
+def with_signer(data, seed, signers_of):
+    """The bytes with the seed's public key in `signers`, where they have no signature line yet, so that the key is
+    covered by the signature (spec, section 12). A file signed already keeps its bytes, as changing them would break
+    its signatures. `signers_of` reads the public keys of the `signers` key from bytes. Returns (bytes, whether the
+    key is in signers)."""
+    from . import release
+    pub = ed25519.public_key(seed)
+    have = signers_of(data)
+    if pub in have:
+        return data, True
+    signed, lines, _ = signature.split(data)
+    if lines:
+        return data, False
+    keys = [base64.b64encode(k).decode() for k in have + [pub]]
+    t = release.Text(signed.decode('utf-8'))
+    t.set_top('signers', writer.scalar(keys), after=('file_version', 'id', 'name'))
+    out = t.text.encode('utf-8')
+    if signers_of(out) != have + [pub]:
+        raise KeyFileError('the signers line could not be written')
+    return out, True
+
+
+def signers_of(data):
+    """The public keys of the `signers` key of a file or a manifest."""
+    return update.read_signers(mncf.parse_toml(mncf.decode(data)), [])
+
+
 def sign_file(path, seed, out=None):
+    """Signs a file, or a pack's manifest, in place or into `out`. Returns whether the key is in `signers`."""
     data = pathlib.Path(path).read_bytes()
     if str(path).endswith('.mncp'):
-        result = sign_pack(data, seed)
+        result, listed = sign_pack(data, seed)
     else:
         mncf.load(data)
+        data, listed = with_signer(data, seed, signers_of)
         result = sign_bytes(data, seed)
     pathlib.Path(out or path).write_bytes(result)
+    return listed
 
 
 def _zip(entries):
@@ -142,24 +172,43 @@ def _zip(entries):
 
 
 def sign_pack(data, seed):
-    """A pack with its manifest signed once more."""
+    """A pack with its manifest signed once more, with the key in its signers where it has no signature yet.
+    Returns (bytes, whether the key is in signers)."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         entries = [(i.filename, z.read(i.filename)) for i in z.infolist() if not i.filename.endswith('/')]
-    out = [(n, sign_bytes(d, seed) if n == 'pack.toml' else d) for n, d in entries]
-    if not any(n == 'pack.toml' for n, _ in out):
+    if not any(n == 'pack.toml' for n, _ in entries):
         raise KeyFileError('the pack has no pack.toml')
-    return _zip(out)
+    out, listed = [], False
+    for n, d in entries:
+        if n == 'pack.toml':
+            d, listed = with_signer(d, seed, signers_of)
+            d = sign_bytes(d, seed)
+        out.append((n, d))
+    return _zip(out), listed
 
 
-def make_pack(files, name, authors=None, about=None, file_version=None, seed=None):
-    """The bytes of a pack of these (path in the pack, bytes) files, each checked as an .mncf file first."""
+def make_pack(files, name, authors=None, about=None, file_version=None, seed=None, pack_id=None, url=None,
+              changes=(), seeds=()):
+    """The bytes of a pack of these (path in the pack, bytes) files, each checked as an .mncf file first. `pack_id`,
+    `url` and `changes` (update.Release entries, newest first) are the keys of spec section 17; `seeds` sign the
+    manifest, with their public keys in its signers."""
+    from .release import entry_block
+    seeds = list(seeds) + ([seed] if seed is not None else [])
     lines = ['format = "mncf-pack/1"', f'name = {writer.string(name)}']
+    if pack_id:
+        lines.append(f'id = {writer.string(pack_id)}')
     if authors:
         lines.append(f'authors = {writer.scalar(authors)}')
     if about:
         lines.append(f'about = {writer.string(about)}')
     if file_version:
         lines.append(f'file_version = {writer.string(file_version)}')
+    if seeds:
+        lines.append(f'signers = {writer.scalar([base64.b64encode(ed25519.public_key(s)).decode() for s in seeds])}')
+    if url:
+        lines += ['', '[update]', f'url = {writer.string(url)}']
+    for r in changes:
+        lines += [''] + entry_block(r)
     seen = set()
     for path, data in files:
         if not valid_path(path) or path == 'pack.toml' or path in seen:
@@ -167,10 +216,11 @@ def make_pack(files, name, authors=None, about=None, file_version=None, seed=Non
         seen.add(path)
         mncf.load(data)
         lines += ['', '[[file]]', f'path = {writer.string(path)}', f'sha256 = "{hashlib.sha256(data).hexdigest()}"']
-    manifest = ('\n'.join(lines) + '\n').encode()
-    if seed is not None:
-        manifest = sign_bytes(manifest, seed)
-    pack = _zip([('pack.toml', manifest)] + list(files))
+    text = ('\n'.join(lines) + '\n').encode()
+    signed = text
+    for s in seeds:
+        text += signature.sign_line(s, signed)
+    pack = _zip([('pack.toml', text)] + list(files))
     read_pack(pack)
     return pack
 
@@ -186,11 +236,19 @@ def verify(path, trust):
             if f.status != 'ok':
                 out.append(f'{f.path}: {f.status}')
                 continue
-            out.append(_line(f.path, signature.check(f.data, trust)))
+            out.append(_line(f.path, _file_signature(f.data, trust)))
         return pack.usable and all(f.status == 'ok' for f in pack.files), out
-    result = signature.check(data, trust)
+    result = _file_signature(data, trust)
     out.append(_line(pathlib.Path(path).name, result))
     return result.result not in ('invalid', 'revoked'), out
+
+
+def _file_signature(data, trust):
+    """The signature result of a file, checked with the keys of its signers where it loads."""
+    try:
+        return mncf.load(data, trust).signature
+    except mncf.MncfError:
+        return signature.check(data, trust)
 
 
 def _line(label, result):
@@ -199,4 +257,6 @@ def _line(label, result):
         text += ' by ' + ', '.join(result.signers)
     if result.key_ids:
         text += ' (key ids ' + ', '.join(result.key_ids) + ')'
+    if result.result == 'unknown-key' and result.verified:
+        text += '; checked with the keys in its signers: ' + ', '.join(result.verified)
     return text
