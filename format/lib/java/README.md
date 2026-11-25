@@ -6,10 +6,11 @@ A Java library that reads, writes and converts files of the Mistel Native Cheat 
 - **Evaluate:** for a runtime, it identifies the build that runs, resolves every place (module offsets, patterns, regions, absolute addresses, pointer paths) and gives each cheat its state, reason and the bytes to write.
 - **Run:** a reference pass engine (spec, section 11.5): it takes what the player does and the guest memory of each pass, and gives the patches, restores, hooks and writes of the pass as one batch, each cheat's state and what the monitors read.
 - **Packs:** it reads packs (`.mncp`): the manifest, its signature and the hash of each file.
+- **Updates:** it reads a file's identity, versions, update address and change entries (section 17), checks whether a file is a new version of the one a runtime holds, and moves what the player set over to it.
 - **Write:** it writes any document in one fixed layout. Writing a file that was read gives the same file again, without its signature lines.
 - **Convert:** it converts Atmosphère cheat files to `.mncf` (section 15), with or without the code module of each build, and a loaded file back to an Atmosphère cheat file for one build.
 
-The Python library is the reference. Both libraries pass the conformance suite in [`../../tests/`](../../tests/) with identical results: the file cases, the pack cases, the pass cases, and the conversion cases, whose expected `.mncf` text the Java converter writes byte for byte.
+The Python library is the reference. Both libraries pass the conformance suite in [`../../tests/`](../../tests/) with identical results: the file cases, the pack cases, the pass cases, the update cases, and the conversion cases, whose expected `.mncf` text the Java converter writes byte for byte.
 
 ## Build and test
 
@@ -158,6 +159,39 @@ A file may have at most 16 MiB (`Mncf.MAX_FILE`). A pack may have at most 4096 e
 Addresses and offsets are unsigned 64-bit numbers in a `long`. Values are a `Long`, a `BigInteger` for a whole number of 2^63 or more, a `Double` or a `Boolean`; `longValue()` gives the 64 bits of any whole number. All result types are immutable. A `Module` and a `CodeModule` keep the image array they are given without copying it, so the caller must not change it afterwards. Pattern search is fast on large modules: it looks for the pattern's longest run of fixed bytes with a skip table and then checks the rest.
 
 The converter never writes `asm` fields: the Python library fills them through a disassembler where one is installed, and this library has none.
+
+## Updates
+
+A file's identity, its versions and the address of its newest version (spec, section 17):
+
+```java
+file.id();                                              // "example.org/someone/x", or null
+file.update();                                          // url() and host(), or null
+file.changes();                                         // the change entries (Release), newest first
+UpdateCheck check = Updates.check(installed, bytes, trust);   // are the bytes a new version of the installed file?
+check.reason();                                         // "" or update:error:<code>, update:signature, update:game,
+                                                        // update:id, update:version, update:signer (Appendix E)
+MncfFile next = check.file();                           // the new file, also where it is not taken
+for (Release r : Updates.since(next, installed.fileVersion())) {    // the change entries to show, newest first
+    show(r.version(), r.date(), Updates.text(next, r, "de"));      // in the player's language where the file has it
+}
+Marks marks = Updates.marks(next, installed.fileVersion());        // marks.added() and marks.fixed(), in file order
+Carry carried = Updates.carry(next, installed.fileVersion(), choices, "relaxed", Arrays.asList("max-iv"));
+carried.choices();                                      // what the player set, under the new ids
+carried.preset();                                       // the preset, or null where the new version lacks it
+carried.ids();                                          // each old cheat id seen: its new id, or null where it is gone
+carried.reset();                                        // values back at their default, with type, range or choice
+carried.gone();                                         // values whose id the cheat no longer has
+carried.dropped();                                      // cheats whose settings were dropped
+```
+
+- `check` follows section 17.2: the new file loads, its signature is not `invalid` or `revoked`, it is for the same game and has the same `id`, its version is above the installed one, and where the installed file is signed, a key that signed it signs the new one. Load `installed` with the same trust list, so that both signatures are checked against the keys the runtime trusts now.
+- A key in a file's `signers` checks a signature line by a key that is not trusted: `signature().verified()` maps the key id of each line that verified to its public key, and the result stays `unknown-key`. A line that names such a key and does not verify makes the file `invalid`.
+- `carry` takes the `Choices` the player made for the installed version and gives them for the new one, following `renamed` and `removed` of each change entry above the installed version. A value that no longer fits goes back to its default; `Updates.fits(spec, value)` says why, by the same rules by which the evaluator refuses a cheat with `value-out-of-range`. `kept` names cheats the runtime keeps something else for, such as the answer to a crash question; `carried.ids()` gives their new ids.
+- Packs: `Updates.checkPack(installedPack, bytes, trust)`, whose `pack()` is the new pack, and `Updates.pairs(oldPack, newPack, trust)`, which matches each file of the old pack with one of the new pack, by its `id` and game or else by its path, and gives null for a file that is gone.
+- `Updates.urlHost(url)` is the host of an address section 17.3 allows, or null; `Updates.USER_AGENT` is the User-Agent a runtime sends, and `Updates.MAX_REDIRECTS` the most redirects it follows. The library makes no connection itself.
+- What is wrong with these keys is a warning, and the file is still used: `id`, `update`, `changes`, `changes:<version>` and `signers`.
+- The maps of `Updates.ids`, `Updates.pairs` and `Carry` keep the order of what they were given, and like every result of the library they cannot be changed.
 
 ## Floats in written files
 

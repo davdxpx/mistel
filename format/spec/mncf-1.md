@@ -806,7 +806,7 @@ A runtime:
 
 - A runtime MUST NOT put a new version in place of the old one without the player's yes. It first shows the `text` of each change entry above the version the player has, up to the new version, newest first, in the player's language (section 9), and the host the new version came from. One yes installs it.
 - A runtime that installs new versions keeps the version it replaced, so that the player can go back to it. Going back is the player's choice and is not checked as section 17.2 says. After going back, the runtime does not offer the version the player left again, only a version above it.
-- In the cheat list, a runtime MAY mark the cheats in `added` of those entries as new, and those in `fixed` as fixed, under their ids in the new version (section 17.5), until the player has seen them.
+- In the cheat list, a runtime MAY mark the cheats in `added` of those entries as new, and those in `fixed` as fixed, under their ids in the new version (section 17.5), until the player has seen them. A cheat that is new and fixed is marked new.
 
 ### 17.5 What the player set
 
@@ -817,6 +817,7 @@ The ids follow the change entries above the version the player has, up to the ne
 - What the player set for a cheat that the new version does not have is dropped.
 - A value of a cheat that is still there keeps what the player chose where it still fits the value in the new version: of its type, inside `min` and `max`, and one of its `choices`. Otherwise it goes back to its default, and the runtime names these values, calmly, when it shows the new version. A value whose id the cheat no longer has is dropped.
 - A preset that the new version does not have is dropped.
+- Where two cheats come to one id, which renames in different entries can do, the cheat keeps what the player set for the first of them.
 - The same holds when the player adds a new version of a file by hand (section 17.2).
 
 The libraries in [`../lib/`](../lib/) give this mapping, the check of section 17.2 and the change entries to show, so that every runtime does the same.
@@ -826,7 +827,7 @@ The libraries in [`../lib/`](../lib/) give this mapping, the check of section 17
 A pack manifest (section 13) has the same keys for the pack as a whole: `id`, `signers`, `file_version`, `[update]` and `[[changes]]`, with the same warnings. Its `update.url` is the address of the newest `.mncp` file, and the lists of its change entries name the pack's files by their `path`, which then need not be ids.
 
 - A runtime checks a new pack as section 17.2 says, for the manifest: the pack's errors (Appendix D) for step 1, the manifest's signature for steps 2 and 6, and no step 3, as a pack has no game of its own.
-- It matches each file of the old pack with the file of the new pack that has the same `id` and game. A file without such a match is matched with the file at the same `path`, following the `renamed` of the pack's change entries, where one of the two has no `id`. For each pair, it keeps what the player set as section 17.5 says, with that file's own change entries. A file of the old pack without a match is gone, with what the player set for it.
+- It matches each file of the old pack with the file of the new pack that has the same `id` and game. A file without such a match is matched with the file at the same `path`, following the `renamed` of the pack's change entries, where one of the two has no `id`; a file that does not load, or is not `ok`, has none. For each pair, it keeps what the player set as section 17.5 says, with that file's own change entries. A file of the old pack without a match is gone, with what the player set for it.
 - A file in a pack gets new versions only with its pack: a runtime ignores the `[update]` of a file it holds from a pack.
 
 Other formats of Mistel use the keys of this section as it says, with the ids of what their files hold in the lists of the change entries.

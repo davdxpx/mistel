@@ -49,8 +49,8 @@ public final class ConformanceTest {
         }
     }
 
-    /** The kinds of cases, by folder: files the reader reads, packs, conversions, and passes. */
-    private static final String[] KINDS = {"cases", "packs", "convert", "passes"};
+    /** The kinds of cases, by folder: files the reader reads, packs, conversions, passes, and updates. */
+    private static final String[] KINDS = {"cases", "packs", "convert", "passes", "updates"};
 
     public static void testSuite() throws Exception {
         List<String> problems = new ArrayList<>();
@@ -158,6 +158,9 @@ public final class ConformanceTest {
         if (c.kind.equals("passes")) {
             return comparePasses(c.table, got);
         }
+        if (c.kind.equals("updates")) {
+            return compareUpdates(c.table, got);
+        }
         return compare(map(c.table.get("expect")), got, c.folder);
     }
 
@@ -170,6 +173,9 @@ public final class ConformanceTest {
         }
         if (c.kind.equals("convert")) {
             return convertResults(c.table, c.folder);
+        }
+        if (c.kind.equals("updates")) {
+            return updateResults(c.table, c.folder);
         }
         return fileResults(c.table, c.folder);
     }
@@ -756,24 +762,27 @@ public final class ConformanceTest {
         }
     }
 
-    static Map<String, Object> packResults(Map<String, Object> c, File folder) throws IOException {
-        Map<String, Object> z = map(c.get("zip"));
-        byte[] data;
+    /** The bytes of a case's ZIP table: text, exact hex, or entries made from files of the folder. */
+    static byte[] zipBytes(Map<String, Object> z, File folder) throws IOException {
         if (z.containsKey("text")) {
-            data = ((String) z.get("text")).getBytes(StandardCharsets.UTF_8);
-        } else if (z.containsKey("hex")) {
-            data = hex((String) z.get("hex"));
-        } else {
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            try (ZipOutputStream archive = new ZipOutputStream(buf)) {
-                for (Map.Entry<String, Object> e : z.entrySet()) {
-                    archive.putNextEntry(new ZipEntry(e.getKey()));
-                    archive.write(Files.readAllBytes(new File(folder, (String) e.getValue()).toPath()));
-                    archive.closeEntry();
-                }
-            }
-            data = buf.toByteArray();
+            return ((String) z.get("text")).getBytes(StandardCharsets.UTF_8);
         }
+        if (z.containsKey("hex")) {
+            return hex((String) z.get("hex"));
+        }
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        try (ZipOutputStream archive = new ZipOutputStream(buf)) {
+            for (Map.Entry<String, Object> e : z.entrySet()) {
+                archive.putNextEntry(new ZipEntry(e.getKey()));
+                archive.write(Files.readAllBytes(new File(folder, (String) e.getValue()).toPath()));
+                archive.closeEntry();
+            }
+        }
+        return buf.toByteArray();
+    }
+
+    static Map<String, Object> packResults(Map<String, Object> c, File folder) throws IOException {
+        byte[] data = zipBytes(map(c.get("zip")), folder);
         Map<String, Object> out = new LinkedHashMap<>();
         Pack pack;
         try {
@@ -790,6 +799,199 @@ public final class ConformanceTest {
         }
         out.put("files", files);
         return out;
+    }
+
+    // Update cases
+
+    /**
+     * The bytes of one side of an update case, installed or new: a file of the folder, or
+     * &lt;side&gt;_text, or &lt;side&gt;_hex for exact bytes.
+     */
+    static byte[] sideBytes(Map<String, Object> c, String side, File folder) throws IOException {
+        if (c.containsKey(side + "_text")) {
+            return ((String) c.get(side + "_text")).getBytes(StandardCharsets.UTF_8);
+        }
+        if (c.containsKey(side + "_hex")) {
+            return hex((String) c.get(side + "_hex"));
+        }
+        return Files.readAllBytes(new File(folder, (String) c.get(side)).toPath());
+    }
+
+    /** The kinds of forms a syntax case lists, and the key of each form's expected result. */
+    private static final String[][] SYNTAX = {{"url", "host"}, {"version", "valid"}, {"compare", "result"},
+        {"id", "valid"}, {"date", "valid"}};
+
+    /** What the reader says of the forms of section 17: addresses, versions, ids and dates. */
+    static Map<String, Object> syntaxResults(Map<String, Object> c) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String[] kind : SYNTAX) {
+            List<Object> results = new ArrayList<>();
+            for (Object item : list(c.get(kind[0]))) {
+                Map<String, Object> x = map(item);
+                String text = (String) x.get("text");
+                if (kind[0].equals("url")) {
+                    String host = Updates.urlHost(text);
+                    results.add(host == null ? "" : host);
+                } else if (kind[0].equals("version")) {
+                    results.add(Updates.isVersion(text));
+                } else if (kind[0].equals("compare")) {
+                    results.add((long) Updates.compare((String) x.get("a"), (String) x.get("b")));
+                } else if (kind[0].equals("id")) {
+                    results.add(Updates.isFileId(text));
+                } else {
+                    results.add(Updates.isDate(text));
+                }
+            }
+            out.put(kind[0], results);
+        }
+        return out;
+    }
+
+    private static String orEmpty(String s) {
+        return s == null ? "" : s;
+    }
+
+    private static Map<String, Object> orEmpty(Map<String, String> m) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : m.entrySet()) {
+            out.put(e.getKey(), orEmpty(e.getValue()));
+        }
+        return out;
+    }
+
+    /**
+     * Whether the new side of an update case is a new version of the installed side (spec,
+     * section 17), the change entries to show and the cheats to mark, and with [settings], what
+     * the player set, moved to the new version.
+     */
+    static Map<String, Object> updateResults(Map<String, Object> c, File folder) throws IOException {
+        for (String[] kind : SYNTAX) {
+            if (c.containsKey(kind[0])) {
+                return syntaxResults(c);
+            }
+        }
+        TrustList trust = trustList(c);
+        boolean packs = c.containsKey("installed_zip");
+        Pack oldPack = null;
+        MncfFile old = null;
+        UpdateCheck check;
+        try {
+            if (packs) {
+                oldPack = PackReader.read(zipBytes(map(c.get("installed_zip")), folder), trust);
+                check = Updates.checkPack(oldPack, zipBytes(map(c.get("new_zip")), folder), trust);
+            } else {
+                old = Mncf.load(sideBytes(c, "installed", folder), trust);
+                check = Updates.check(old, sideBytes(c, "new", folder), trust);
+            }
+        } catch (MncfException e) {
+            throw new IllegalStateException("the installed side does not load: " + e.code(), e);
+        }
+        String from = packs ? oldPack.fileVersion() : old.fileVersion();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("reason", check.reason());
+        out.put("from", orEmpty(from));
+        out.put("to", orEmpty(check.toVersion()));
+        out.put("since", new ArrayList<Object>());
+        out.put("texts", new ArrayList<Object>());
+        out.put("new", new ArrayList<Object>());
+        out.put("fixed", new ArrayList<Object>());
+        if (packs ? check.pack() == null : check.file() == null) {
+            return out;
+        }
+        List<Release> shown = packs ? Updates.since(check.pack(), from) : Updates.since(check.file(), from);
+        List<Object> since = new ArrayList<>();
+        List<Object> texts = new ArrayList<>();
+        for (Release r : shown) {
+            since.add(r.version());
+            texts.add(orEmpty(packs ? r.text() : Updates.text(check.file(), r, (String) c.get("language"))));
+        }
+        out.put("since", since);
+        out.put("texts", texts);
+        if (packs) {
+            out.put("pairs", orEmpty(Updates.pairs(oldPack, check.pack(), trust)));
+            return out;
+        }
+        Marks marks = Updates.marks(check.file(), from);
+        out.put("new", new ArrayList<Object>(marks.added()));
+        out.put("fixed", new ArrayList<Object>(marks.fixed()));
+        if (c.containsKey("settings")) {
+            Map<String, Object> s = map(c.get("settings"));
+            Choices.Builder b = Choices.builder().on(strings(s.get("on"))).off(strings(s.get("off")));
+            for (Map.Entry<String, Object> v : map(s.get("values")).entrySet()) {
+                b.value(v.getKey(), v.getValue());
+            }
+            String preset = (String) s.get("preset");
+            Carry carried = Updates.carry(check.file(), from, b.build(),
+                    preset == null || preset.isEmpty() ? null : preset, strings(s.get("kept")));
+            Map<String, Object> settings = new LinkedHashMap<>();
+            settings.put("on", new ArrayList<Object>(carried.choices().on()));
+            settings.put("off", new ArrayList<Object>(carried.choices().off()));
+            settings.put("values", new LinkedHashMap<String, Object>(carried.choices().values()));
+            settings.put("preset", orEmpty(carried.preset()));
+            settings.put("ids", orEmpty(carried.ids()));
+            settings.put("dropped", new ArrayList<Object>(carried.dropped()));
+            settings.put("gone", new ArrayList<Object>(carried.gone()));
+            settings.put("reset", new LinkedHashMap<String, Object>(carried.reset()));
+            out.put("settings", settings);
+        }
+        return out;
+    }
+
+    /** The keys of what the player set, moved over, and what each is where a case does not give it. */
+    private static final Object[][] SETTINGS = {{"on", new ArrayList<>()}, {"off", new ArrayList<>()},
+        {"values", new LinkedHashMap<>()}, {"preset", ""}, {"ids", new LinkedHashMap<>()},
+        {"dropped", new ArrayList<>()}, {"gone", new ArrayList<>()}, {"reset", new LinkedHashMap<>()}};
+
+    /**
+     * The differences between an update case's [expect] table and what the reader said, as
+     * lines. Only the keys the case gives are compared, and reason; under settings, every key,
+     * with its default where it is missing.
+     */
+    static List<String> compareUpdates(Map<String, Object> c, Map<String, Object> got) {
+        List<String> problems = new ArrayList<>();
+        if (got.containsKey("url")) {
+            for (String[] kind : SYNTAX) {
+                List<Object> items = list(c.get(kind[0]));
+                List<Object> values = list(got.get(kind[0]));
+                for (int i = 0; i < items.size() && i < values.size(); i++) {
+                    Map<String, Object> item = map(items.get(i));
+                    if (!same(item.get(kind[1]), values.get(i), null)) {
+                        Object label = item.containsKey("text") ? item.get("text") : item.get("a");
+                        problems.add(kind[0] + " " + Py.repr(label) + ": expected " + Py.repr(item.get(kind[1]))
+                                + ", got " + Py.repr(values.get(i)));
+                    }
+                }
+            }
+            return problems;
+        }
+        Map<String, Object> want = map(c.get("expect"));
+        List<String> keys = new ArrayList<>();
+        for (String key : want.keySet()) {
+            if (!key.equals("settings")) {
+                keys.add(key);
+            }
+        }
+        if (!want.containsKey("reason")) {
+            keys.add("reason");
+        }
+        for (String key : keys) {
+            Object w = want.containsKey(key) ? want.get(key) : "";
+            if (!got.containsKey(key) || !same(w, got.get(key), null)) {
+                problems.add(key + ": expected " + Py.repr(w) + ", got " + Py.repr(got.get(key)));
+            }
+        }
+        if (want.containsKey("settings")) {
+            Map<String, Object> ws = map(want.get("settings"));
+            Map<String, Object> g = map(got.get("settings"));
+            for (Object[] d : SETTINGS) {
+                String key = (String) d[0];
+                Object w = ws.containsKey(key) ? ws.get(key) : d[1];
+                if (!same(w, g.get(key), null)) {
+                    problems.add("settings." + key + ": expected " + Py.repr(w) + ", got " + Py.repr(g.get(key)));
+                }
+            }
+        }
+        return problems;
     }
 
     // Comparing, as the Python runner does
