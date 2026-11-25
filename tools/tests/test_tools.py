@@ -66,7 +66,10 @@ class KeysTest(unittest.TestCase):
             ok, lines = keys.verify(path, trust)
             self.assertTrue(ok)
             self.assertIn('verified by Test key', lines[0])
-            self.assertEqual(mncf.load(path.read_bytes()).signed, text.encode())
+            signed = mncf.load(path.read_bytes())
+            self.assertEqual(signed.signers, [mncf.ed25519.public_key(SEED)])     # the first key went into signers
+            self.assertEqual(b'\n'.join(x for x in signed.signed.split(b'\n') if not x.startswith(b'signers = ')),
+                             text.encode())
             pack = keys.make_pack([('example.mncf', path.read_bytes())], 'Example pack', seed=SEED)
             (d / 'example.mncp').write_bytes(pack)
             ok, lines = keys.verify(d / 'example.mncp', trust)
