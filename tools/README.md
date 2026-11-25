@@ -10,7 +10,7 @@ The `mistel` command for people who make cheats and mods. Python 3.11 or later; 
 | `mistel sign`, `mistel verify` | Signs a file or a pack with an author's key, and checks signatures | Version 1 |
 | `mistel pack` | Puts `.mncf` files into an `.mncp` pack, with its manifest signed if a key is given | Version 1 |
 | `mistel keygen` | Makes an Ed25519 key pair, never inside a repository | Version 1 |
-| `mistel port` | Tries a file's patterns on a new build and says which cheats still fit | Planned |
+| `mistel port` | Gives a file's cheats their places in a new build of the game: the places in code, found again by the code around them in the old build, and the patterns checked | Version 1: places in code |
 | `mistel convert` from the cheat formats of other platforms' emulators and PC cheat tables | | Planned |
 
 ## Install
@@ -77,6 +77,20 @@ mistel pack example.mncp cheats.mncf other.mncf --name "Example pack" --sign <fo
 ```
 
 A secret key file stays on its author's machine. `mistel keygen` refuses to write one inside the Mistel repository or inside any git work tree that does not ignore it.
+
+## Port to a new build
+
+When a game update moves the code, a cheat that names its place by an offset for one build stops working on the new one. With the main module of a build the file knows and the main module of the new build, both NSO files from your own dump (`<dump>/<title ID>-work`, never from anywhere else), `mistel port` finds each place again:
+
+```bash
+mistel port cheats.mncf --old <dump>/<title ID>-work/1.0.2/main --new <dump>/<title ID>-work/1.0.3/main --version 1.0.3
+```
+
+- For each place in main's code or read-only data that a cheat names by an offset for the old build, the original bytes around it in the old main, with the bytes that move between builds left open (branch and page offsets), are searched in the new main. Where they are found exactly once, the cheat gets its offset for the new build, and a patch or override is checked against its `expect` there. A fixed offset that moved becomes an offset for each build.
+- Where the code around the place is found but the instruction itself changed, the cheat is not given the place: the report says that the code there is not what it expects.
+- A place found by a pattern needs nothing; the tool checks that the pattern still finds one place.
+- Not ported yet, and named in the report: places in data (a pointer base, a value in main's data), places in regions with an offset for each build, fixed addresses, places in other modules, and raw code that is only for the old build.
+- The new build is added to `builds` with its build ID and `--version`. The file is written beside the old one as `<file>.ported.mncf`, so that you can compare it; `-v` lists every place. Nothing of the game is read but the two main modules, and no keys.
 
 ## Tests
 
