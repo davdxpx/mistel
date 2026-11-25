@@ -102,6 +102,19 @@ def new_module(change=None):
     return parse_nso(syn.make_nso(text, ro, data, bss=0x400, build_id=NEW_ID))
 
 
+def copied(change=None):
+    """The old module with the code around the money place copied to 0x1400, so that no pattern finds it in the old
+    main, and the new module made the same way, SHIFT bytes later (the words in change replaced there)."""
+    text, ro, data = syn.sample_code()
+    text = bytearray(text)
+    text[0x1400:0x1400 + 0xC0] = text[syn.FUNCTION - 0x50:syn.FUNCTION + 0x70]
+    later = bytearray(syn.words(*(syn.FILLER * 2)[:syn.SHIFT // 4]) + bytes(text[:syn.TEXT_SIZE - syn.SHIFT]))
+    for at, word in change or ():
+        later[at:at + 4] = syn.words(word)
+    return (parse_nso(syn.make_nso(bytes(text), ro, data, bss=0x400)),
+            parse_nso(syn.make_nso(bytes(later), ro, data, bss=0x400, build_id=NEW_ID)))
+
+
 class PortTest(unittest.TestCase):
     def test_places_move_with_the_code(self):
         p = port.port(FILE.encode(), old_module(), new_module(), version='1.0.1')
@@ -143,6 +156,62 @@ class PortTest(unittest.TestCase):
         change = [(NEW - 8 + i, 0xD503201F) for i in range(0, 0x20, 4)]
         p = port.port(FILE.encode(), old_module(), new_module(change), version='1.0.1')
         self.assertEqual({c.id: c.outcome for c in p.cheats}['money'], 'not-found')
+
+    def test_a_call_whose_target_moved_to_the_other_side(self):
+        # the bl after the place called forward in the old build and calls backward in the new one: its top byte
+        # changed with the sign of its offset, and the code around the place is found all the same
+        new = new_module([(syn.BL + syn.SHIFT, 0x97FFFF00)])
+        self.assertEqual(port._around(old_module(), new, OLD, 4), ('found', NEW))
+
+    def test_copies_of_the_code(self):
+        # the code around the place is in the old main twice: no pattern finds it, the unique code near it does, with
+        # every byte between them the same
+        old, new = copied()
+        self.assertIsNone(port.make_pattern(old, OLD, cover=4))
+        p = port.port(FILE.encode(), old, new, version='1.0.1')
+        money = {c.id: c for c in p.cheats}['money']
+        self.assertEqual(money.outcome, 'ported')
+        self.assertEqual((money.places[0].old, money.places[0].new), (OLD, NEW))
+
+    def test_copies_of_the_code_that_changed_between(self):
+        # the same, but the new build changed an instruction between the place and the unique code on each side
+        old, new = copied([(NEW - 0x30, 0xD503201F), (NEW + 0x50, 0xD503201F)])
+        p = port.port(FILE.encode(), old, new, version='1.0.1')
+        self.assertEqual({c.id: c.outcome for c in p.cheats}['money'], 'no-pattern')
+
+    def test_the_search_finds_what_find_all_finds(self):
+        m = old_module()
+        whole = port.Module(None, 0, m.image, len(m.image), m.sections)
+        for lo, hi, open_first in ((syn.FUNCTION, syn.FUNCTION + 8, False), (syn.FUNCTION - 4, syn.FUNCTION + 16, True),
+                                   (0x400, 0x404, False), (0x1800, 0x1808, True), (0x200, 0x220, False)):
+            items = list(m.image[lo:hi])
+            if open_first:
+                items[0] = None
+            self.assertEqual(port._find(m, items, None, 5), port.find_all(whole, items, None, 5))
+
+    def test_a_short_pattern_at_code_that_only_looks_alike(self):
+        # the new build lost the money function, and the bytes of its pattern are in it once at other code: the pattern
+        # finds them, but the code next to them is not the code next to the place, so the place is not taken
+        old = old_module()
+        p = port.make_pattern(old, OLD, cover=4)
+        chunk = old.image[OLD - p.place:OLD - p.place + len(p.items)]
+        self.assertLess(len(chunk), 4 * port.SURE)
+        text, ro, data = syn.shifted_code()
+        text = bytearray(text)
+        text[syn.FUNCTION + syn.SHIFT:syn.FUNCTION + syn.SHIFT + 32] = syn.words(*([0xD503201F] * 8))
+        text[0x1C00:0x1C00 + len(chunk)] = chunk
+        new = parse_nso(syn.make_nso(bytes(text), ro, data, bss=0x400, build_id=NEW_ID))
+        self.assertEqual(port._find(new, p.items), [0x1C00])
+        got = port.port(FILE.encode(), old, new, version='1.0.1')
+        self.assertEqual({c.id: c.outcome for c in got.cheats}['money'], 'not-found')
+
+    def test_32_bit_code(self):
+        # a game whose first build was 32-bit ARM code: no place can be found by code in a 64-bit later build
+        text = syn.words(*([0xE3500000, 0xE12FFF1E, 0xE92D4010, 0xE8BD8010] * (syn.TEXT_SIZE // 16)))
+        _, ro, data = syn.sample_code()
+        arm = parse_nso(syn.make_nso(text, ro, data, bss=0x400))
+        with self.assertRaisesRegex(port.PortError, '32-bit ARM'):
+            port.port(FILE.encode(), arm, new_module())
 
     def test_the_build_must_be_known(self):
         other = FILE.replace(syn.BUILD_ID, '1111111111111111')
