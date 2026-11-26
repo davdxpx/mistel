@@ -12,8 +12,8 @@ No cheats for real games in this repository either. Tests use made-up games: a m
 
 ## Before you start
 
-- **Agree on the scope first** for anything large: a new part, a new engine adapter, a change to the `.mncf` format, or more than about 1,000 lines. Open an issue and say what you want to build and why.
-- **The `.mncf` format changes only through its spec.** A change to the format is first a change to [`format/spec/`](format/spec/), with the version rule it follows, and then the readers in every language in the same pull request.
+- **Agree on the scope first** for anything large: a new part, a new engine adapter, a change to the `.mncf` or `.mnmf` format, or more than about 1,000 lines. Open an issue and say what you want to build and why.
+- **The `.mncf` and `.mnmf` formats change only through their specs.** A change to the format is first a change to [`format/spec/`](format/spec/), with the version rule it follows, and then the readers in every language in the same pull request.
 - Prefer a rule that holds for every game, or every game on one engine, to a rule for one game. Fix a bug at its cause, not by hiding the symptom.
 
 ## A pull request

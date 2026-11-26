@@ -23,11 +23,21 @@ This folder is under the [MIT License](LICENSE), so that any emulator or port ca
 
 The complete schema is the spec.
 
+## Mods: the Mistel Native Mod Format (`.mnmf`)
+
+The sibling of `.mncf`, for mods: one `.mnmf` file per mod, and `.mnmp` packs of several mods. It shares the conventions, platforms, signatures and keys of `.mncf`, and carries code changes as `.mncf` files.
+
+- **Survives updates:** a mod ships only the files it changes, each with the hash of the original game file it was made for. On a new build, every part whose originals are unchanged keeps working and is shown as checked; a part whose originals changed is switched off with a reason.
+- **Indexes built by the runtime:** a mod never ships a game's archive index made for one build; it names an index rule, and the runtime builds the index for the build that runs.
+- **A full page:** name, version, authors and credits, license, a description with a small markup, kinds with standard icons, tags, a square logo, a banner, a gallery with thumbnails, supported builds with a status for each part, choices and options, translations.
+- **Built for speed:** a ZIP whose first entries are the manifest and a thumbnail, files that are already compressed stored as they are, Zstandard for the rest, a hash for every file, streaming installs and reading in place.
+- **Packs:** load order, dependencies, conflicts, the chosen setup of each mod, and `.mncf` files.
+
 ## Layout
 
 | Folder | What | Status |
 |---|---|---|
-| [`spec/`](spec/) | The specification, versioned: [`mncf-1.md`](spec/mncf-1.md) for `mncf/1` | Draft |
+| [`spec/`](spec/) | The specifications, versioned: [`mncf-1.md`](spec/mncf-1.md) for `mncf/1`, [`mnmf-1.md`](spec/mnmf-1.md) for `mnmf/1` | Drafts |
 | [`guide.md`](guide.md) | How to write `.mncf` files by hand, step by step, and what the reasons for a refused cheat mean | Version 1 |
 | [`lib/python/`](lib/python/) | The Python library: read and check a file, identify the build, resolve locations, give each cheat its state and reason, check signatures and packs; write files; convert Atmosphère cheats | Version 1 |
 | [`lib/java/`](lib/java/) | The same in Java, for Android (API 33) and the JVM, without dependencies | Version 1 |
