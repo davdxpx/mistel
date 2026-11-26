@@ -228,13 +228,18 @@ class Place:
 
 @dataclass
 class Store:
+    """A store of width bytes. Its value is the low bytes of what the code gives: a type 6 store carries 64 bits, and
+    dmnt writes as many of them as the width says."""
     place: Place
     width: int
     value: int
 
+    def __post_init__(self):
+        self.value &= (1 << (8 * self.width)) - 1
+
     @property
     def data(self):
-        return (self.value & ((1 << (8 * self.width)) - 1)).to_bytes(self.width, 'little')
+        return self.value.to_bytes(self.width, 'little')
 
 
 @dataclass

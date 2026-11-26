@@ -1,0 +1,47 @@
+format = "mncf/1"
+name = "Example"
+origin = { format = "atmosphere", name = "example.zip" }
+extensions = { optional = ["raw/1"] }
+
+[game]
+platform = "switch"
+id = "0100000000ABC000"
+
+[builds."1.0.0"]
+modules = { main = "0123456789ABCDEF" }
+
+[[cheat]]
+id = "items-x2"
+name = "Items x2"
+
+  [[cheat.write]]
+  at = { module = "main", offsets = { "1.0.0" = 0x3020 }, path = [0x8] }
+  type = "u32"
+  value = 2
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+580F0000 00003020
+780F0000 00000008
+640F0000 00000008 00000002
+"""
+
+[[cheat]]
+id = "counter"
+name = "Counter"
+
+  [[cheat.write]]
+  at = { module = "main", offsets = { "1.0.0" = 0x3020 }, path = [0x10] }
+  type = "u16"
+  value = 65535
+
+  [[cheat.raw]]
+  syntax = "atmosphere"
+  build = "1.0.0"
+  code = """
+580F0000 00003020
+780F0000 00000010
+620F0000 00000000 0001FFFF
+"""
