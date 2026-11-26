@@ -129,8 +129,8 @@ public final class PackReader {
                 authors.add((String) x);
             }
         }
-        List<byte[]> signers = Updates.readSigners(doc, warnings);
-        Updates.Keys keys = Updates.readKeys(doc, warnings, new Updates.Name() {
+        List<byte[]> signers = UpdateKeys.readSigners(doc, warnings);
+        UpdateKeys.Keys keys = UpdateKeys.readKeys(doc, warnings, new UpdateKeys.Name() {
             @Override
             public boolean ok(Object path) {
                 return path instanceof String && isValidPath((String) path) && !path.equals("pack.toml");

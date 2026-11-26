@@ -189,11 +189,11 @@ public final class PatchFilesTest {
         for (String n : new String[] {"atmosphere/exefs_patches/60fps/0123456789ABCDEF.ips",
             "load/0100000000ABC000/My mod/exefs/a.pchtxt", "atmosphere/contents/0100000000ABC000/exefs/b.pchtxt",
             "0123456789ABCDEF.ips", null}) {
-            sets.add(Converter.setName(n));
+            sets.add(PatchConverter.setName(n));
         }
         Check.equal(Arrays.asList("60fps", "My mod", "b", "Patch", "Patch"), sets);
-        Check.equal("x", Converter.setName("x/.ips"));
-        Check.equal("Patch", Converter.setName(".ips"));
+        Check.equal("x", PatchConverter.setName("x/.ips"));
+        Check.equal("Patch", PatchConverter.setName(".ips"));
         Patch neg = new Patch("", true, Collections.singletonList(new Patch.Record(BigInteger.valueOf(-5), hex("01"))));
         Check.equal(Collections.singletonList("-0x5: 1 byte in the NSO header"), Patches.imageRuns(neg, 0x10).dropped());
     }
@@ -204,7 +204,7 @@ public final class PatchFilesTest {
         Check.throwsWith(ConvertException.class, "needs the module", new Check.Action() {
             @Override
             public void run() throws Exception {
-                Converter.fromPatches(PatchSource.builder(data).fileName(Synthetic.BUILD_ID + ".ips").build(),
+                PatchConverter.fromPatches(PatchSource.builder(data).fileName(Synthetic.BUILD_ID + ".ips").build(),
                         options());
             }
         });
@@ -216,17 +216,17 @@ public final class PatchFilesTest {
                     sections.put(name, new long[] {mod.sectionStart(name), mod.sectionEnd(name)});
                 }
                 CodeModule bare = new CodeModule(mod.image(), sections, null, null, null);
-                Converter.fromPatches(PatchSource.builder(data).module(bare).build(), options());
+                PatchConverter.fromPatches(PatchSource.builder(data).module(bare).build(), options());
             }
         });
         ConvertException e = Check.throwsWith(ConvertException.class, "no patch", new Check.Action() {
             @Override
             public void run() throws Exception {      // nothing of it lands in the module
-                Converter.fromPatches(PatchSource.builder(ips(rec(0x10, hex("01")))).module(mod).build(), options());
+                PatchConverter.fromPatches(PatchSource.builder(ips(rec(0x10, hex("01")))).module(mod).build(), options());
             }
         });
         Check.equal("source", e.code());
-        Conversion conv = Converter.fromPatches(PatchSource.builder(data).module(mod)
+        Conversion conv = PatchConverter.fromPatches(PatchSource.builder(data).module(mod)
                 .fileName("atmosphere/exefs_patches/Faster/" + Synthetic.BUILD_ID + ".ips").build(),
                 options().origin("faster.zip"));
         MncfFile f = Mncf.load(Fixtures.utf8(conv.text()));
@@ -242,7 +242,7 @@ public final class PatchFilesTest {
         Check.equal(CheatResult.ON, ev.cheats().get(0).state());
         Check.equal(0x8000000L + Synthetic.STR_W8, ev.cheats().get(0).ops().get(0).address());
         // A module whose build ID differs from the file's is named in a warning; the file's ID names the build.
-        Conversion other = Converter.fromPatches(PatchSource.builder(data).module(mod)
+        Conversion other = PatchConverter.fromPatches(PatchSource.builder(data).module(mod)
                 .fileName("1122334455667788.ips").build(), options());
         Check.equal(Collections.singletonList("the module of build 1122334455667788 is "
                 + mod.buildId().toUpperCase(java.util.Locale.ROOT) + ", its patch file 1122334455667788"),
@@ -258,7 +258,7 @@ public final class PatchFilesTest {
                 .version("1.0.0").moduleName("subsdk0").build();
         PatchSource c = PatchSource.builder(data).module(mod).fileName("1122334455667788.ips").setName("Faster")
                 .version("1.0.0").build();
-        MncfFile f = Mncf.load(Fixtures.utf8(Converter.fromPatches(Arrays.asList(a, b), options()).text()));
+        MncfFile f = Mncf.load(Fixtures.utf8(PatchConverter.fromPatches(Arrays.asList(a, b), options()).text()));
         Map<String, String> modules = new LinkedHashMap<>();
         modules.put("main", Synthetic.BUILD_ID);
         modules.put("subsdk0", "0F0E0D0C0B0A0908");
@@ -268,19 +268,19 @@ public final class PatchFilesTest {
             at.add(((Model.Patch) x.ops().get(0)).at.module);
         }
         Check.equal(Arrays.asList("main", "subsdk0"), at);
-        f = Mncf.load(Fixtures.utf8(Converter.fromPatches(Arrays.asList(a, c), options()).text()));   // one version, two builds
+        f = Mncf.load(Fixtures.utf8(PatchConverter.fromPatches(Arrays.asList(a, c), options()).text()));   // one version, two builds
         Check.equal(Arrays.asList(Synthetic.BUILD_ID, "1122334455667788"), new ArrayList<>(f.builds().keySet()));
         Check.equal(1, f.cheats().size());
         PatchSource noVersion = PatchSource.builder(data).module(mod).fileName(Synthetic.BUILD_ID + ".ips").version("")
                 .build();
         Check.equal(Collections.singletonList(Synthetic.BUILD_ID), new ArrayList<>(Mncf.load(Fixtures.utf8(
-                Converter.fromPatches(noVersion, options()).text())).builds().keySet()));
+                PatchConverter.fromPatches(noVersion, options()).text())).builds().keySet()));
         final PatchSource sameKey = PatchSource.builder(data).module(mod).fileName("1122334455667788.ips")
                 .buildKey("1.0.0").build();
         Check.throwsWith(ConvertException.class, "two build IDs", new Check.Action() {
             @Override
             public void run() throws Exception {                  // one build, two IDs for main
-                Converter.fromPatches(Arrays.asList(a, sameKey), options());
+                PatchConverter.fromPatches(Arrays.asList(a, sameKey), options());
             }
         });
     }
@@ -295,7 +295,7 @@ public final class PatchFilesTest {
                 Collections.singletonList(new CodeModule.Run(0x1010, 4)));
         String text = "@flag offset_shift 0x100\n// Patches by Ann\n@enabled\n00001008 691200B9\n"
                 + "// Half\n@enabled\n00001008 691200B9\n00001010 1F2003D5\n";
-        Conversion conv = Converter.fromPatches(PatchSource.builder(text.getBytes(StandardCharsets.UTF_8)).module(mod)
+        Conversion conv = PatchConverter.fromPatches(PatchSource.builder(text.getBytes(StandardCharsets.UTF_8)).module(mod)
                 .fileName("p.pchtxt").setName("S").build(), options());
         List<Object> reps = new ArrayList<>();
         for (CheatReport c : conv.report().cheats()) {
@@ -311,7 +311,7 @@ public final class PatchFilesTest {
         byte[] fmov = ips(rec(0x1900, hex("00 10 20 1E")), rec(0x3110, hex("07")));     // fmov s0, #2.0; a data byte
         PatchSource src = PatchSource.builder(fmov).module(mod).fileName(Synthetic.BUILD_ID + ".ips").setName("S")
                 .build();
-        MncfFile f = Mncf.load(Fixtures.utf8(Converter.fromPatches(src, options()).text()));
+        MncfFile f = Mncf.load(Fixtures.utf8(PatchConverter.fromPatches(src, options()).text()));
         Cheat c = f.cheats().get(0);
         Check.equal("f32", c.values().get("value").type());
         Check.equal(2.0, c.values().get("value").defaultValue());
@@ -319,7 +319,7 @@ public final class PatchFilesTest {
         Check.equal("bytes", w.type);
         Check.equal("07", Values.hexBytes((byte[]) w.value));
         Check.equal("00", Values.hexBytes((byte[]) w.expect));
-        String plain = Converter.fromPatches(src, options().values(false)).text();
+        String plain = PatchConverter.fromPatches(src, options().values(false)).text();
         Check.isTrue(!plain.contains("encode"), "no values");
         Check.isTrue(!plain.contains("extensions"), "no extensions without values");
     }

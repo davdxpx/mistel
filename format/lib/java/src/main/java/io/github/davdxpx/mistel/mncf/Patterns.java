@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.IntConsumer;
+import java.util.stream.IntStream;
 
 /**
  * The shortest byte pattern that finds one place in a module exactly once (section 6.3).
@@ -120,33 +122,94 @@ final class Patterns {
         return words;
     }
 
-    /** Where the needle lies in the ranges, overlapping, or null when it lies there more than limit times. */
-    private static List<Long> occurrences(byte[] image, byte[] needle, List<long[]> ranges, int limit) {
-        int k = needle.length;
-        int[] shift = new int[256];
-        Arrays.fill(shift, k);
-        for (int i = 0; i < k - 1; i++) {
-            shift[needle[i] & 0xFF] = k - 1 - i;
+    /**
+     * Where each word of STEP bytes lies in the ranges, overlapping: a list for each word, in the image's
+     * order, or null for a word that lies there more than limit times. One pass finds every word, so a
+     * place's anchors cost one look at the image, not one each.
+     */
+    static List<List<Long>> occurrences(byte[] image, List<byte[]> needles, List<long[]> ranges, int limit) {
+        int n = needles.size();
+        int[] words = new int[n];
+        for (int j = 0; j < n; j++) {
+            byte[] w = needles.get(j);
+            words[j] = (w[0] & 0xFF) | (w[1] & 0xFF) << 8 | (w[2] & 0xFF) << 16 | (w[3] & 0xFF) << 24;
         }
-        List<Long> found = new ArrayList<>();
+        List<List<Long>> found = new ArrayList<>();
+        boolean[] over = new boolean[n];
+        for (int j = 0; j < n; j++) {
+            found.add(new ArrayList<Long>());
+        }
         for (long[] r : ranges) {
-            int start = (int) Math.max(0, Math.min(r[0], image.length));
-            int end = (int) Math.max(0, Math.min(r[1], image.length));
-            // A Horspool scan: the shift after any window, a match too, never skips a place.
-            for (int at = start; at + k <= end; at += shift[image[at + k - 1] & 0xFF]) {
-                boolean same = true;
-                for (int i = k - 1; i >= 0 && same; i--) {
-                    same = image[at + i] == needle[i];
+            final int start = (int) Math.max(0, Math.min(r[0], image.length));
+            final int end = (int) Math.max(0, Math.min(r[1], image.length));
+            final int parts = parts(end - start);
+            final int size = (end - start + parts - 1) / parts;
+            final int[][][] got = new int[parts][][];
+            IntStream each = IntStream.range(0, parts);
+            (parts > 1 ? each.parallel() : each).forEach(new IntConsumer() {
+                @Override
+                public void accept(int i) {
+                    int from = start + i * size;
+                    got[i] = words(image, words, from, Math.min(end, from + size + STEP - 1), limit);
                 }
-                if (same) {
-                    found.add((long) at);
-                    if (found.size() > limit) {
-                        return null;
+            });
+            for (int i = 0; i < parts; i++) {
+                for (int j = 0; j < n; j++) {
+                    if (got[i][j] == null) {
+                        over[j] = true;
+                    }
+                    for (int k = 0; !over[j] && k < got[i][j].length; k++) {
+                        found.get(j).add((long) got[i][j][k]);
+                        over[j] = found.get(j).size() > limit;
                     }
                 }
             }
         }
+        for (int j = 0; j < n; j++) {
+            if (over[j]) {
+                found.set(j, null);
+            }
+        }
         return found;
+    }
+
+    /** Where the words start in image[from, to): their offsets for each word, or null past limit of them. */
+    private static int[][] words(byte[] image, int[] words, int from, int to, int limit) {
+        int n = words.length;
+        int[][] at = new int[n][16];
+        int[] count = new int[n];
+        if (to - from >= STEP && n > 0) {
+            int w0 = words[0];
+            int w1 = n > 1 ? words[1] : w0;
+            int w2 = n > 2 ? words[2] : w0;
+            int w = (image[from] & 0xFF) << 8 | (image[from + 1] & 0xFF) << 16 | (image[from + 2] & 0xFF) << 24;
+            for (int q = from; q + STEP <= to; q++) {
+                w = w >>> 8 | (image[q + 3] & 0xFF) << 24;      // the four bytes from q, as the needles are read
+                if (w != w0 && w != w1 && w != w2 && n <= 3) {
+                    continue;
+                }
+                for (int j = 0; j < n; j++) {
+                    if (w == words[j] && count[j] <= limit) {
+                        if (count[j] == at[j].length) {
+                            at[j] = Arrays.copyOf(at[j], 2 * count[j]);
+                        }
+                        at[j][count[j]++] = q;
+                    }
+                }
+            }
+        }
+        int[][] out = new int[n][];
+        for (int j = 0; j < n; j++) {
+            out[j] = count[j] > limit ? null : Arrays.copyOf(at[j], count[j]);
+        }
+        return out;
+    }
+
+    /** How many parts a search of this many bytes is split into, for the processor's cores; 1 for a small one. */
+    static int parts(long length) {
+        int cores = java.lang.Runtime.getRuntime().availableProcessors();
+        long most = length / (1 << 20);                        // a part of at least 1 MiB is worth a thread
+        return (int) Math.max(1, Math.min(2L * cores, most));
     }
 
     /**
@@ -178,8 +241,15 @@ final class Patterns {
         List<long[]> ranges = searchRanges(m);
         Found best = null;
         List<Anchor> all = anchors(window, lo, offset);
-        for (Anchor a : all.subList(0, Math.min(3, all.size()))) {
-            List<Long> hits = occurrences(image, a.piece, ranges, limit);
+        List<Anchor> first = all.subList(0, Math.min(3, all.size()));
+        List<byte[]> pieces = new ArrayList<>();
+        for (Anchor a : first) {
+            pieces.add(a.piece);
+        }
+        List<List<Long>> where = occurrences(image, pieces, ranges, limit);
+        for (int i = 0; i < first.size(); i++) {
+            Anchor a = first.get(i);
+            List<Long> hits = where.get(i);
             if (hits == null) {
                 continue;
             }

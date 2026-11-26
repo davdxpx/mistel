@@ -45,6 +45,8 @@ dependencies {
 }
 ```
 
+An app that copies the library's source into its own instead leaves out what it never calls. Reading, writing, checking and evaluating files and converting Atmosphère cheats need none of these: the checks between two versions of a file or a pack (`Updates`, `UpdateCheck`, `Carry`, `Marks`), packs (`Pack`, `PackFile`, `PackReader`, `Zip`) and patch files (`PatchConverter`, `Patches`, `PatchFile`, `Patch`, `PatchSource`, `PatchFileException`). A file's own update keys are read with it (`UpdateKeys`, `Release`, `Update`), so those stay.
+
 ## The API in short
 
 Reading and evaluating:
@@ -98,6 +100,8 @@ List<Change> back = engine.stop();                        // puts back every pla
 
 The engine reads guest memory only through the `GuestMemory` it is given and changes nothing itself. One thread calls it.
 
+A conversion with a code module looks up a pattern for every place a cheat patches, and an evaluation looks up every pattern a file names. Each such search reads the whole module once, in parts on the processor's cores when the module is large (`ForkJoinPool.commonPool()`), so a conversion or an evaluation for a large game takes seconds, not minutes. Run it off an app's main thread all the same.
+
 Writing and converting:
 
 ```java
@@ -146,7 +150,7 @@ Patch files of a code module, IPS, IPS32 and IPSwitch text (`.pchtxt`):
 ```java
 PatchSource patch = PatchSource.builder(ipsBytes).module(module)
         .fileName("exefs_patches/60fps/A1B2C3D4E5F60718.ips").version("1.0.2").build();
-Conversion conv = Converter.fromPatches(patch,          // or a list of sources; throws ConvertException with
+Conversion conv = PatchConverter.fromPatches(patch,     // or a list of sources; throws ConvertException with
         Converter.Options.forGame("0100000000ABC000")  // code() "patch" (PatchFileException) or "source"
                 .origin("60fps.zip"));
 PatchFile file = Patches.read(ipsBytes);                // the file itself: its patches and their records

@@ -358,7 +358,7 @@ public final class ConformanceTest {
                 .values(!Boolean.FALSE.equals(c.get("values")));
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            out.put("text", patches ? Converter.fromPatches(patchSources, options).text()
+            out.put("text", patches ? PatchConverter.fromPatches(patchSources, options).text()
                     : Converter.fromAtmosphere(sources, options).text());
         } catch (ConvertException e) {
             out.put("error", e.code());
