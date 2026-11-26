@@ -20,7 +20,7 @@ public final class Pack {
     private final List<String> warnings;
 
     Pack(String name, SignatureResult signature, List<PackFile> files, List<String> authors, String about,
-            String fileVersion, Updates.Keys keys, List<byte[]> signers, List<String> warnings) {
+            String fileVersion, UpdateKeys.Keys keys, List<byte[]> signers, List<String> warnings) {
         this.name = name;
         this.signature = signature;
         this.files = Collections.unmodifiableList(new ArrayList<>(files));

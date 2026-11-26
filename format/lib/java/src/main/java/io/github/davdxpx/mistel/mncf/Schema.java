@@ -170,8 +170,8 @@ final class Schema {
         if (doc.containsKey("authors")) {
             out.authors = strList(doc.get("authors"), "authors");
         }
-        out.signers = Updates.readSigners(doc, warnings);
-        Updates.Keys keys = Updates.readKeys(doc, warnings, Updates.CHEAT_ID);
+        out.signers = UpdateKeys.readSigners(doc, warnings);
+        UpdateKeys.Keys keys = UpdateKeys.readKeys(doc, warnings, UpdateKeys.CHEAT_ID);
         out.id = keys.id;
         out.update = keys.update;
         out.changes = keys.changes;
