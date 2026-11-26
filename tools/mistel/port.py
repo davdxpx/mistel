@@ -11,6 +11,7 @@ Only the code modules of the player's own dump are read: the old and the new bui
 images. Nothing else of the game, and no keys.
 """
 import copy
+import re
 from dataclasses import dataclass, field
 
 import mncf
@@ -89,9 +90,64 @@ def _in_code(module, offset):
     return module.section_of(offset) in ('code', 'rodata')
 
 
-def _find(module, items, section=None):
+def _find(module, items, section=None, limit=2):
+    """Where the pattern is, up to limit places, as find_all gives them: found by the pattern's longest run of fixed
+    bytes and then checked whole, which is much faster than a regular expression over a main of 50 MB."""
     m = Module(None, 0, module.image, len(module.image), module.sections)
-    return find_all(m, items, section, 2)
+    a0 = a1 = 0
+    i = 0
+    while i < len(items):
+        if items[i] is None:
+            i += 1
+            continue
+        j = i
+        while j < len(items) and items[j] is not None:
+            j += 1
+        if j - i > a1 - a0:
+            a0, a1 = i, j
+        i = j
+    if a1 - a0 < 4:
+        return find_all(m, items, section, limit)
+    # from the longest run on, as a regular expression that starts with it, so that the engine looks for that run
+    # and checks the rest; the bytes before it are checked here, for the few places found
+    image = module.image
+    rx = re.compile(b''.join(b'.' if b is None else re.escape(bytes([b])) for b in items[a0:]), re.DOTALL)
+    found, seen = [], set()
+    for start, end in m.search_ranges(section):
+        end = min(end, len(image))
+        pos = start + a0
+        while True:
+            hit = rx.search(image, pos, end)
+            if hit is None:
+                break
+            h = hit.start() - a0
+            if h not in seen and all(b is None or image[h + n] == b for n, b in enumerate(items[:a0])):
+                seen.add(h)
+                found.append(h)
+                if len(found) >= limit:
+                    return found
+            pos = hit.start() + 1
+    return found
+
+
+def _arm32(module):
+    """Whether the module's code is 32-bit ARM rather than AArch64: more of ARM's function returns (bx lr, pop with pc)
+    than of AArch64's ret in it."""
+    end = min(len(module.image), module.text_size or module.sections.get('code', (0, len(module.image)))[1])
+    code = bytes(module.image[:end])
+    a64 = code.count(RET)
+    a32 = code.count(bytes.fromhex('1eff2fe1')) + len(re.findall(rb'[\x80-\xff]\xbd\xe8', code))
+    return a32 > a64
+
+
+def _branch_signs(image, lo, hi):
+    """The top bytes of B and BL in [lo, hi): their low bits are the top of the branch offset, which flips when the
+    target moves to the other side of the branch."""
+    out = set()
+    for off in range(lo & ~3, hi, 4):
+        if off + 4 <= len(image) and lo <= off + 3 < hi and (image[off + 3] & 0x7C) == 0x14:
+            out.add(off + 3)
+    return out
 
 
 def _search(old, new, offset, length):
@@ -100,13 +156,116 @@ def _search(old, new, offset, length):
         return 'data', None
     p = make_pattern(old, offset, cover=min(length, 4))
     if p is None:
-        return 'no-pattern', None
+        n = _by_neighbour(old, new, offset, length)
+        return ('found', n) if n is not None else ('no-pattern', None)
     hits = _find(new, p.items)
     if not hits:
         return _around(old, new, offset, length)
-    if len(hits) > 1:
-        return 'ambiguous', None
+    if len(hits) > 1 or not _confirmed(old, new, offset, hits[0] + p.place, length):
+        n = _by_neighbour(old, new, offset, length)
+        if n is not None:
+            return 'found', n
+        return ('ambiguous' if len(hits) > 1 else 'not-found'), None
     return 'found', hits[0] + p.place
+
+
+SURE = 7            # instructions the same next to a place (before and after it, the place left out) for a find to count
+RET = bytes.fromhex('c0035fd6')
+
+
+def _alike(old_image, new_image, o, n):
+    """Whether the old word at o and the new one at n are the same instruction where only what moves between builds
+    differs: an ADRP or ADR the same kind into the same register, a B or BL the same kind, and otherwise the bytes that
+    do not move the same."""
+    a, b = old_image[o:o + 4], new_image[n:n + 4]
+    if len(a) < 4 or len(b) < 4:
+        return False
+    if a == b:
+        return True
+    wa, wb = int.from_bytes(a, 'little'), int.from_bytes(b, 'little')
+    if (wa & 0x1F000000) == 0x10000000:                     # ADR, ADRP: the whole word but its kind and register
+        return (wa & 0x9F00001F) == (wb & 0x9F00001F)
+    if (wa & 0x7C000000) == 0x14000000:                     # B, BL
+        return (wa & 0xFC000000) == (wb & 0xFC000000)
+    x, y = _masked(old_image, o, o + 4), _masked(new_image, n, n + 4)
+    return all(i is None or j is None or i == j for i, j in zip(x, y))
+
+
+def _same_word(old, new, o, n):
+    if o < 0 or n < 0:
+        return False
+    return _alike(old.image, new.image, o, n)
+
+
+def _confirmed(old, new, offset, n, length):
+    """Whether the code next to a place found at n is the same as next to it in the old main: SURE instructions or
+    more before and after it together, or the whole function, from the return before it to the one after it. A short
+    pattern can be unique in the old main and found once in the new one at code that only looks alike."""
+    counts = []
+    for step, o0, n0 in ((-4, offset - 4, n - 4), (4, offset + length, n + length)):
+        k, end = 0, False
+        while k <= SURE and _same_word(old, new, o0 + step * k, n0 + step * k):
+            k += 1
+            if old.image[o0 + step * (k - 1):o0 + step * (k - 1) + 4] == RET:
+                end = True
+                break
+        counts.append((k, end))
+    (before, start), (after, stop) = counts
+    return before + after >= SURE or (start and stop)
+
+
+NEAR = 1024         # how far from a place the code that finds it may be, in bytes
+ANCHOR = 32         # the length of that code
+
+
+def _masked(image, lo, hi):
+    """The bytes [lo, hi) with the ones that move between builds left open."""
+    moving = arm64.moving_bytes(image, lo, hi) | _branch_signs(image, lo, hi)
+    return [None if i in moving else image[i] for i in range(lo, hi)]
+
+
+def _same(old, new, o_lo, o_hi, n_lo):
+    """Whether the old main's bytes [o_lo, o_hi) are the new main's from n_lo on, bytes that move left open."""
+    n_hi = n_lo + o_hi - o_lo
+    if o_lo >= o_hi:
+        return True
+    if n_lo < 0 or n_hi > len(new.image):
+        return False
+    if o_lo % 4 == 0 and n_lo % 4 == 0 and (o_hi - o_lo) % 4 == 0:
+        return all(_alike(old.image, new.image, o_lo + i, n_lo + i) for i in range(0, o_hi - o_lo, 4))
+    a, b = _masked(old.image, o_lo, o_hi), _masked(new.image, n_lo, n_hi)
+    return all(x is None or y is None or x == y for x, y in zip(a, b))
+
+
+def _by_neighbour(old, new, offset, length):
+    """The place found through code near it, for a place whose own code is in the old main more than once (copies of
+    a function) or is found more than once in the new one: the nearest ANCHOR bytes within NEAR bytes, in the same
+    section, that are found once in the old main and once in the new one, where every byte between them and the place
+    is the same in both. The place is then as far from them as before."""
+    section = old.section_of(offset)
+    start, end = old.sections[section]
+    if section == 'code' and old.text_size is not None:
+        end = min(end, old.text_size)
+    end = min(end, len(old.image))
+    for d in range(ANCHOR, NEAR + ANCHOR, ANCHOR):
+        for lo in (offset - d, offset + length + d - ANCHOR):
+            hi = lo + ANCHOR
+            if lo < start or hi > end:
+                continue
+            items = _masked(old.image, lo, hi)
+            if sum(1 for b in items if b is not None) < ANCHOR // 2 or _find(old, items) != [lo]:
+                continue
+            hits = _find(new, items)
+            if len(hits) != 1:
+                continue
+            n = hits[0] + offset - lo
+            if lo < offset:
+                between = _same(old, new, hi, offset, hits[0] + ANCHOR)
+            else:
+                between = _same(old, new, offset + length, lo, n + length)
+            if between:
+                return n
+    return None
 
 
 def _around(old, new, offset, length):
@@ -115,7 +274,7 @@ def _around(old, new, offset, length):
     start, end = old.sections[old.section_of(offset)]
     for w in (8, 16, 24, 32, 48, 64):
         lo, hi = max(start, offset - w), min(end, len(old.image), offset + length + w)
-        moving = arm64.moving_bytes(old.image, lo, hi)
+        moving = arm64.moving_bytes(old.image, lo, hi) | _branch_signs(old.image, lo, hi)
         items = [None if i in moving or offset <= i < offset + length else old.image[i] for i in range(lo, hi)]
         while items and items[0] is None:
             items.pop(0)
@@ -125,7 +284,9 @@ def _around(old, new, offset, length):
         if sum(1 for b in items if b is not None) < 8 or _find(old, items) != [lo]:
             continue
         hits = _find(new, items)
-        return ('found', hits[0] + offset - lo) if len(hits) == 1 else ('not-found', None)
+        if len(hits) == 1 and _confirmed(old, new, offset, hits[0] + offset - lo, length):
+            return 'found', hits[0] + offset - lo
+        return 'not-found', None
     return 'not-found', None
 
 
@@ -195,6 +356,11 @@ def port(data, old, new, old_key=None, new_key=None, version=None):
     f = mncf.load(data)
     if not new.short_id:
         raise PortError('the new main names no build ID: give an NSO file')
+    for which, m in (('old', old), ('new', new)):
+        if _arm32(m):
+            raise PortError(f'the {which} main is 32-bit ARM code: mistel port finds places in AArch64 code only (a game '
+                            f'that moved from 32 to 64 bits in an update was compiled anew, and no place can be found by '
+                            f'its code)')
     old_key = old_key or (build_key(f, old.short_id) if old.short_id else None)
     if old_key is None or old_key not in f.builds:
         raise PortError('the file has no build of the old main' + (f' ({old.short_id})' if old.short_id else '') +

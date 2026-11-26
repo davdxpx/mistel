@@ -91,6 +91,8 @@ mistel port cheats.mncf --old <dump>/<title ID>-work/1.0.2/main --new <dump>/<ti
 ```
 
 - For each place in main's code or read-only data that a cheat names by an offset for the old build, the original bytes around it in the old main, with the bytes that move between builds left open (branch and page offsets), are searched in the new main. Where they are found exactly once, the cheat gets its offset for the new build, and a patch or override is checked against its `expect` there. A fixed offset that moved becomes an offset for each build.
+- Where that code is in the old main more than once (copies of one function) or is found more than once in the new one, the nearest code within 1 KB that is found once in both is used, if every byte between it and the place is the same in both builds.
+- A call whose target moved to the other side of it changed its top byte too; that byte is left open where the place is searched by the code around it.
 - Where the code around the place is found but the instruction itself changed, the cheat is not given the place: the report says that the code there is not what it expects.
 - A place found by a pattern needs nothing; the tool checks that the pattern still finds one place.
 - Not ported yet, and named in the report: places in data (a pointer base, a value in main's data), places in regions with an offset for each build, fixed addresses, places in other modules, and raw code that is only for the old build.
